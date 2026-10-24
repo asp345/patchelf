@@ -83,7 +83,11 @@ private:
             if (elfFile->rdi(y.p_type) == PT_PHDR) return false;
             if (elfFile->rdi(x.p_type) == PT_PHDR) return true;
 
-            // Sort non-PHDRs by address.
+            if (elfFile->rdi(elfFile->hdr()->e_type) == ET_EXEC) {
+                if (elfFile->rdi(y.p_type) == PT_INTERP) return false;
+                if (elfFile->rdi(x.p_type) == PT_INTERP) return true;
+                return elfFile->rdi(x.p_vaddr) < elfFile->rdi(y.p_vaddr);
+            }
             return elfFile->rdi(x.p_paddr) < elfFile->rdi(y.p_paddr);
         }
     };
@@ -102,8 +106,6 @@ private:
     [[nodiscard]] unsigned int getPageSize() const noexcept;
 
     void sortShdrs();
-
-    void shiftFile(unsigned int extraPages, size_t sizeOffset, size_t extraBytes);
 
     [[nodiscard]] std::string getSectionName(const Elf_Shdr & shdr) const;
 
@@ -131,11 +133,35 @@ private:
 
     void rewriteSectionsLibrary();
 
-    Elf_Phdr * findLoadSegmentByOffset(Elf_Off offset);
-
-    void trimLoadSegments(Elf_Off startOffset, size_t headerIndex);
-
     void rewriteSectionsExecutable();
+
+    void replaceDynamicInPlace();
+
+    [[nodiscard]] std::optional<size_t> findHeaderLoad() const;
+
+    [[nodiscard]] uint64_t maxLoadEnd() const;
+
+    [[nodiscard]] std::optional<size_t> findMetadataLoad(
+        const std::optional<size_t> & headerIndex, uint64_t memoryEnd) const;
+
+    [[nodiscard]] bool isMetadataSection(const Elf_Shdr & shdr) const;
+
+    void setLoadSegment(size_t index, Elf_Off offset, Elf_Addr address,
+        Elf_Addr size, unsigned flags, Elf_Addr align);
+
+    [[nodiscard]] bool headerRelocationRequired(size_t headerIndex,
+        const std::optional<size_t> & metadataIndex, uint64_t & headerSize) const;
+
+    [[nodiscard]] uint64_t placeMetadataLoad(size_t metadataIndex, uint64_t alignment);
+
+    void updateSavedHeader(const std::string & name, Elf_Addr phdrAddress);
+
+    [[nodiscard]] std::optional<std::string> findSavedHeaderSection() const;
+
+    std::optional<std::string> addSavedHeaderSection();
+
+    [[nodiscard]] bool canReuseMetadataSpace(size_t metadataIndex,
+        uint64_t alignment) const;
 
     void normalizeNoteSegments();
 

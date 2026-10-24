@@ -511,91 +511,6 @@ static uint64_t roundUp(uint64_t n, uint64_t m)
 
 
 template<ElfFileParams>
-void ElfFile<ElfFileParamNames>::shiftFile(unsigned int extraPages, size_t startOffset, size_t extraBytes)
-{
-    assert(startOffset >= sizeof(Elf_Ehdr));
-
-    auto oldSize = fileContents->size();
-    assert(oldSize > startOffset);
-
-    /* Move the entire contents of the file after 'startOffset' by 'extraPages' pages further. */
-    unsigned int shift = extraPages * getPageSize();
-    fileContents->resize(oldSize + shift, 0);
-    memmove(fileContents->data() + startOffset + shift, fileContents->data() + startOffset, oldSize - startOffset);
-    memset(fileContents->data() + startOffset, 0, shift);
-
-    /* Adjust the ELF header. */
-    wri(hdr()->e_phoff, sizeof(Elf_Ehdr));
-    if (rdi(hdr()->e_shoff) >= startOffset)
-        wri(hdr()->e_shoff, rdi(hdr()->e_shoff) + shift);
-
-    /* Update the offsets in the section headers. */
-    for (int i = 1; i < rdi(hdr()->e_shnum); ++i) {
-        size_t sh_offset = rdi(shdrs.at(i).sh_offset);
-        if (sh_offset >= startOffset)
-            wri(shdrs.at(i).sh_offset, sh_offset + shift);
-    }
-
-    int splitIndex = -1;
-    size_t splitShift = 0;
-
-    /* Update the offsets in the program headers. */
-    for (int i = 0; i < rdi(hdr()->e_phnum); ++i) {
-        Elf_Off p_start = rdi(phdrs.at(i).p_offset);
-
-        if (p_start < startOffset && p_start + rdi(phdrs.at(i).p_filesz) > startOffset && rdi(phdrs.at(i).p_type) == PT_LOAD) {
-            assert(splitIndex == -1);
-
-            splitIndex = i;
-            splitShift = startOffset - p_start;
-
-            /* This is the load segment we're currently extending within, so we split it. */
-            wri(phdrs.at(i).p_offset, startOffset);
-            wri(phdrs.at(i).p_memsz, rdi(phdrs.at(i).p_memsz) - splitShift);
-            wri(phdrs.at(i).p_filesz, rdi(phdrs.at(i).p_filesz) - splitShift);
-            wri(phdrs.at(i).p_paddr, rdi(phdrs.at(i).p_paddr) + splitShift);
-            wri(phdrs.at(i).p_vaddr, rdi(phdrs.at(i).p_vaddr) + splitShift);
-
-            p_start = startOffset;
-        }
-
-        if (p_start >= startOffset) {
-            wri(phdrs.at(i).p_offset, p_start + shift);
-            if (rdi(phdrs.at(i).p_align) != 0 &&
-                (rdi(phdrs.at(i).p_vaddr) - rdi(phdrs.at(i).p_offset)) % rdi(phdrs.at(i).p_align) != 0) {
-                debug("changing alignment of program header %d from %d to %d\n", i,
-                    rdi(phdrs.at(i).p_align), getPageSize());
-                wri(phdrs.at(i).p_align, getPageSize());
-            }
-        } else {
-            /* If we're not physically shifting, shift back virtual memory. */
-            if (rdi(phdrs.at(i).p_paddr) >= shift)
-                wri(phdrs.at(i).p_paddr, rdi(phdrs.at(i).p_paddr) - shift);
-            if (rdi(phdrs.at(i).p_vaddr) >= shift)
-                wri(phdrs.at(i).p_vaddr, rdi(phdrs.at(i).p_vaddr) - shift);
-        }
-    }
-
-    /* If no LOAD crosses startOffset, the existing header LOAD can grow
-       without splitting the LOAD that starts at the first reserved section. */
-    if (splitIndex == -1)
-        return;
-
-    /* Add another PT_LOAD segment loading the data we've split above. */
-    phdrs.resize(rdi(hdr()->e_phnum) + 1);
-    wri(hdr()->e_phnum, rdi(hdr()->e_phnum) + 1);
-    Elf_Phdr & phdr = phdrs.at(rdi(hdr()->e_phnum) - 1);
-    wri(phdr.p_type, PT_LOAD);
-    wri(phdr.p_offset, phdrs.at(splitIndex).p_offset - splitShift - shift);
-    wri(phdr.p_paddr, phdrs.at(splitIndex).p_paddr - splitShift - shift);
-    wri(phdr.p_vaddr, phdrs.at(splitIndex).p_vaddr - splitShift - shift);
-    wri(phdr.p_filesz, wri(phdr.p_memsz, splitShift + extraBytes));
-    wri(phdr.p_flags, PF_R | PF_W);
-    wri(phdr.p_align, getPageSize());
-}
-
-
-template<ElfFileParams>
 std::string ElfFile<ElfFileParamNames>::getSectionName(const Elf_Shdr & shdr) const
 {
     const size_t name_off = rdi(shdr.sh_name);
@@ -1016,234 +931,435 @@ void ElfFile<ElfFileParamNames>::rewriteSectionsLibrary()
 
 static bool noSort = false;
 
-template<ElfFileParams>
-Elf_Phdr * ElfFile<ElfFileParamNames>::findLoadSegmentByOffset(Elf_Off offset)
-{
-    for (auto & phdr : phdrs)
-        if (rdi(phdr.p_type) == PT_LOAD && rdi(phdr.p_offset) <= offset &&
-            rdi(phdr.p_offset) + rdi(phdr.p_filesz) > offset)
-            return &phdr;
-    return nullptr;
-}
-
-
-template<ElfFileParams>
-void ElfFile<ElfFileParamNames>::trimLoadSegments(Elf_Off startOffset, size_t headerIndex)
-{
-    /* Sections before startOffset are being relocated into the header LOAD.
-       Trim old LOADs so they cannot overwrite the header page permissions.
-
-       File offsets: 0                 startOffset
-                     | moved sections | reserved sections
-       Before:       [header LOAD...]
-                              [old LOAD..................]
-       After:        [header LOAD....][old LOAD...........]
-
-       Growth may move the header LOAD backwards in virtual memory; the
-       reserved sections keep their addresses. Walk backwards through phdrs
-       so erasing a LOAD does not change indices still to visit. */
-    for (size_t i = phdrs.size(); i != 0;) {
-        auto & phdr = phdrs[--i];
-        Elf_Off offset = rdi(phdr.p_offset);
-        if (i == headerIndex || rdi(phdr.p_type) != PT_LOAD || offset >= startOffset)
-            continue;
-
-        Elf_Off skipped = startOffset - offset;
-        if (rdi(phdr.p_filesz) <= skipped && rdi(phdr.p_memsz) <= skipped) {
-            phdrs.erase(phdrs.begin() + i);
-            continue;
-        }
-        wri(phdr.p_offset, startOffset);
-        wri(phdr.p_vaddr, rdi(phdr.p_vaddr) + skipped);
-        wri(phdr.p_paddr, rdi(phdr.p_paddr) + skipped);
-        /* Preserve any zero-filled tail even if no file bytes remain. */
-        wri(phdr.p_filesz, rdi(phdr.p_filesz) > skipped ? rdi(phdr.p_filesz) - skipped : 0);
-        wri(phdr.p_memsz, rdi(phdr.p_memsz) > skipped ? rdi(phdr.p_memsz) - skipped : 0);
-    }
-    wri(hdr()->e_phnum, phdrs.size());
-}
-
+static const char savedHeaderSectionName[] = ".patchelf.ehdr";
 
 template<ElfFileParams>
 void ElfFile<ElfFileParamNames>::rewriteSectionsExecutable()
 {
-    if (!noSort) {
-        /* Sort the sections by offset, otherwise we won't correctly find
-           all the sections before the last replaced section. */
+    if (!noSort)
         sortShdrs();
-    }
 
-    /* What is the index of the last replaced section? */
-    unsigned int lastReplaced = 0;
-    for (unsigned int i = 1; i < rdi(hdr()->e_shnum); ++i) {
-        std::string sectionName = getSectionName(shdrs.at(i));
-        if (replacedSections.count(sectionName)) {
-            debug("using replaced section '%s'\n", sectionName.c_str());
-            lastReplaced = i;
-        }
-    }
-
-    assert(lastReplaced != 0);
-
-    debug("last replaced is %d\n", lastReplaced);
-
-    /* Try to replace all sections before that, as far as possible.
-       Stop when we reach an irreplacable section (such as one of type
-       SHT_PROGBITS).  These cannot be moved in virtual address space
-       since that would invalidate absolute references to them. */
-    assert(lastReplaced + 1 < shdrs.size()); /* !!! I'm lazy. */
-    size_t startOffset = rdi(shdrs.at(lastReplaced + 1).sh_offset);
-    Elf_Addr startAddr = rdi(shdrs.at(lastReplaced + 1).sh_addr);
-    std::string prevSection;
-    for (unsigned int i = 1; i <= lastReplaced; ++i) {
-        Elf_Shdr & shdr(shdrs.at(i));
-        std::string sectionName = getSectionName(shdr);
-        debug("looking at section '%s'\n", sectionName.c_str());
-        /* !!! Why do we stop after a .dynstr section? I can't
-           remember! */
-        if ((rdi(shdr.sh_type) == SHT_PROGBITS && sectionName != ".interp")
-            || prevSection == ".dynstr")
-        {
-            startOffset = rdi(shdr.sh_offset);
-            startAddr = rdi(shdr.sh_addr);
-            lastReplaced = i - 1;
-            break;
-        }
-        if (!replacedSections.count(sectionName)) {
-            debug("replacing section '%s' which is in the way\n", sectionName.c_str());
-            replaceSection(sectionName, rdi(shdr.sh_size));
-        }
-        prevSection = std::move(sectionName);
-    }
-
-    debug("first reserved offset/addr is 0x%x/0x%llx\n",
-        startOffset, (unsigned long long) startAddr);
-
-    assert(startAddr % getPageSize() == startOffset % getPageSize());
-    Elf_Addr firstPage = startAddr - startOffset;
-    debug("first page is 0x%llx\n", (unsigned long long) firstPage);
-
-    if (rdi(hdr()->e_shoff) < startOffset) {
-        /* The section headers occur too early in the file and would be
-           overwritten by the replaced sections. Move them to the end of the file
-           before proceeding. */
-        off_t shoffNew = fileContents->size();
-        off_t shSize = rdi(hdr()->e_shoff) + rdi(hdr()->e_shnum) * rdi(hdr()->e_shentsize);
-        fileContents->resize(fileContents->size() + shSize, 0);
-        wri(hdr()->e_shoff, shoffNew);
-
-        /* Rewrite the section header table.  For neatness, keep the
-           sections sorted. */
-        assert(rdi(hdr()->e_shnum) == shdrs.size());
-        sortShdrs();
-        for (unsigned int i = 1; i < rdi(hdr()->e_shnum); ++i)
-            * ((Elf_Shdr *) (fileContents->data() + rdi(hdr()->e_shoff)) + i) = shdrs.at(i);
-    }
-
+    replaceDynamicInPlace();
 
     normalizeNoteSegments();
 
-    Elf_Off headerEnd = sizeof(Elf_Ehdr) + phdrs.size() * sizeof(Elf_Phdr);
-    bool reuseHeaderLoad = false;
-    Elf_Addr originalHeaderBase = firstPage;
-    unsigned int originalHeaderFlags = 0;
-    if (auto headerLoad = findLoadSegmentByOffset(headerEnd)) {
-        originalHeaderBase = rdi(headerLoad->p_vaddr) - rdi(headerLoad->p_offset);
-        originalHeaderFlags = rdi(headerLoad->p_flags);
-        reuseHeaderLoad = rdi(headerLoad->p_offset) + rdi(headerLoad->p_filesz) <= startOffset;
-        trimLoadSegments(startOffset, headerLoad - phdrs.data());
-    }
+    std::optional<size_t> headerIndex = findHeaderLoad();
 
-    /* Compute the total space needed for the replaced sections, the
-       ELF header, and the program headers. */
-    size_t neededSpace = sizeof(Elf_Ehdr) + phdrs.size() * sizeof(Elf_Phdr);
-    for (auto & i : replacedSections)
-        neededSpace += roundUp(i.second.size(), sectionAlignment);
+    const uint64_t memoryEnd = maxLoadEnd();
 
-    debug("needed space is %d\n", neededSpace);
+    std::optional<size_t> metadataIndex = findMetadataLoad(headerIndex, memoryEnd);
 
-    /* A writable section (commonly .dynamic, which the loader writes DT_DEBUG
-       into) may be relocated into the reserved area, so the segment covering
-       that area must end up writable. */
-    bool needWritable = std::any_of(replacedSections.begin(), replacedSections.end(),
-        [this](const std::pair<const std::string, std::string> & i) {
-            return (rdi(findSectionHeader(i.first).sh_flags) & SHF_WRITE) != 0;
-        });
-
-    unsigned int neededPages = 0;
-    if (reuseHeaderLoad) {
-        /* strip may remove file padding while leaving a virtual gap.
-           File growth keeps the replacement before startOffset. Virtual
-           growth moves the header base down so its end stays below the page
-           containing the first reserved section. Use the larger requirement. */
-        Elf_Addr reservedPage = startAddr - startAddr % getPageSize();
-        size_t fileGrowth = neededSpace > startOffset ? neededSpace - startOffset : 0;
-        size_t virtualGrowth = originalHeaderBase + neededSpace > reservedPage
-            ? originalHeaderBase + neededSpace - reservedPage : 0;
-        size_t growth = std::max(fileGrowth, virtualGrowth);
-        if (growth != 0)
-            neededPages = roundUp(growth, getPageSize()) / getPageSize();
-    } else if (neededSpace > startOffset ||
-        (needWritable && (originalHeaderFlags & PF_X) != 0 &&
-         neededSpace + sizeof(Elf_Phdr) <= startOffset && firstPage >= getPageSize()))
-    {
-        /* Split the header area into its own R/W LOAD when more space is
-           needed, or to avoid making an executable LOAD writable. For the
-           latter, fall back to W+X if the extra header or page cannot fit. */
-        neededSpace += sizeof(Elf_Phdr);
-        /* The loader rounds the remaining LOAD down to the page containing
-           startOffset, so the new header LOAD must end below that page. */
-        size_t startPage = startOffset - startOffset % getPageSize();
-        size_t growth = neededSpace > startPage ? neededSpace - startPage : 0;
-        neededPages = roundUp(growth, getPageSize()) / getPageSize();
-    }
-
-    if (neededPages != 0) {
-        debug("needed space is %d\n", neededSpace);
-        debug("needed pages is %d\n", neededPages);
-        if (neededPages * getPageSize() > firstPage ||
-            (reuseHeaderLoad && neededPages * getPageSize() > originalHeaderBase))
-            error("virtual address space underrun!");
-
-        size_t extraSpace = neededSpace > startOffset ? neededSpace - startOffset : 0;
-        shiftFile(neededPages, startOffset, extraSpace);
-
-        firstPage -= neededPages * getPageSize();
-        startOffset += neededPages * getPageSize();
-    }
-
-    Elf_Off curOff = sizeof(Elf_Ehdr) + phdrs.size() * sizeof(Elf_Phdr);
-    Elf_Addr headerBase = firstPage;
-
-    /* Extend the LOAD covering PHDR to include all relocated sections. */
-    if (auto headerLoad = findLoadSegmentByOffset(curOff)) {
-        /* strip can drop file padding between LOADs, so this LOAD's
-           address-to-offset mapping may differ from firstPage. */
-        headerBase = rdi(headerLoad->p_vaddr) - rdi(headerLoad->p_offset);
-        if (rdi(headerLoad->p_filesz) < neededSpace) {
-            wri(headerLoad->p_filesz, neededSpace);
-            wri(headerLoad->p_memsz, neededSpace);
+    if (metadataIndex) {
+        const auto & load = phdrs[*metadataIndex];
+        for (const auto & shdr : shdrs) {
+            if ((rdi(shdr.sh_flags) & SHF_ALLOC) != 0 && rdi(shdr.sh_size) != 0 &&
+                rdi(shdr.sh_addr) >= rdi(load.p_vaddr) &&
+                (rdi(shdr.sh_addr) + rdi(shdr.sh_size)) <= memoryEnd) {
+                const auto name = getSectionName(shdr);
+                if (!hasReplacedSection(name))
+                    replaceSection(name, rdi(shdr.sh_size));
+            }
         }
-        /* Set write access even if the LOAD was already large enough. A new
-           LOAD from shiftFile is R/W; an unsplit executable LOAD uses the
-           W+X fallback when an extra header or page could not fit. */
-        if (needWritable)
-            wri(headerLoad->p_flags, rdi(headerLoad->p_flags) | PF_W);
     }
 
-    /* Clear out the free space. startOffset is taken from an sh_offset in
-       the input, so must be bounded before being used as a write extent. */
-    if (startOffset < curOff || startOffset > fileContents->size())
-        error("section offsets are inconsistent with file size");
-    debug("clearing first %d bytes\n", startOffset - curOff);
-    memset(fileContents->data() + curOff, 0, startOffset - curOff);
+    bool relocateHeader = !headerIndex;
+    for (;;) {
+        if (!metadataIndex && !replacedSections.empty()) {
+            phdrs.emplace_back();
+            metadataIndex = phdrs.size() - 1;
+        }
+        normalizeNoteSegments();
+        const uint64_t tableEnd = (rdi(hdr()->e_phoff) + phdrs.size() * sizeof(Elf_Phdr));
+        bool added = false;
+        for (const auto & shdr : shdrs) {
+            if (rdi(shdr.sh_type) == SHT_NOBITS || rdi(shdr.sh_size) == 0)
+                continue;
+            const uint64_t start = rdi(shdr.sh_offset);
+            if (start >= tableEnd || (start + rdi(shdr.sh_size)) <= rdi(hdr()->e_phoff))
+                continue;
+            const auto name = getSectionName(shdr);
+            if (hasReplacedSection(name))
+                continue;
+            if (name.empty() || !isMetadataSection(shdr)) {
+                relocateHeader = true;
+                break;
+            }
+            replaceSection(name, rdi(shdr.sh_size));
+            added = true;
+        }
+        if (relocateHeader || !added)
+            break;
+    }
 
-    /* Write out the replaced sections. */
-    writeReplacedSections(curOff, headerBase, 0);
-    assert(curOff == neededSpace);
+    uint64_t alignment = getPageSize();
+    for (const auto & phdr : phdrs)
+        if (rdi(phdr.p_type) == PT_LOAD)
+            alignment = std::max<uint64_t>(alignment, rdi(phdr.p_align));
+    if (alignment > maxSegmentAlignment)
+        error("segment alignment is implausibly large; refusing to grow file");
 
-    /* Write out the updated program and section headers */
-    rewriteHeaders(headerBase + rdi(hdr()->e_phoff));
+    uint64_t headerSize = 0;
+    if (!relocateHeader)
+        relocateHeader = headerRelocationRequired(*headerIndex, metadataIndex, headerSize);
+
+    std::optional<std::string> savedHeaderName = findSavedHeaderSection();
+
+    if (relocateHeader) {
+        /* Code may derive the PHT address from these bytes, so keep them mapped. */
+        if (!savedHeaderName)
+            savedHeaderName = addSavedHeaderSection();
+        if (!metadataIndex) {
+            phdrs.emplace_back();
+            metadataIndex = phdrs.size() - 1;
+        }
+        headerIndex = phdrs.size();
+        phdrs.emplace_back();
+        headerSize = sizeof(Elf_Ehdr) + phdrs.size() * sizeof(Elf_Phdr);
+        const uint64_t shift = roundUp(headerSize, alignment);
+        const uint64_t oldSize = fileContents->size();
+        const uint64_t newSize = (oldSize + shift);
+        if (newSize > std::numeric_limits<Elf_Off>::max() || newSize > fileContents->max_size())
+            error("executable layout exceeds address space");
+        fileContents->resize(newSize, 0);
+        memmove(fileContents->data() + shift, fileContents->data(), oldSize);
+        memset(fileContents->data(), 0, shift);
+        memcpy(fileContents->data(), fileContents->data() + shift, sizeof(Elf_Ehdr));
+        for (auto & shdr : shdrs)
+            if (rdi(shdr.sh_type) != SHT_NULL)
+                wri(shdr.sh_offset, (rdi(shdr.sh_offset) + shift));
+        for (auto & phdr : phdrs)
+            if (rdi(phdr.p_type) != PT_NULL &&
+                (rdi(phdr.p_offset) != 0 || rdi(phdr.p_filesz) != 0 || rdi(phdr.p_type) == PT_LOAD))
+                wri(phdr.p_offset, (rdi(phdr.p_offset) + shift));
+        wri(hdr()->e_phoff, sizeof(Elf_Ehdr));
+        wri(hdr()->e_shoff, (rdi(hdr()->e_shoff) + shift));
+        setLoadSegment(*headerIndex, 0, roundUp(memoryEnd, alignment), shift, PF_R, alignment);
+        if (*headerIndex > *metadataIndex) {
+            std::swap(phdrs[*headerIndex], phdrs[*metadataIndex]);
+            std::swap(*headerIndex, *metadataIndex);
+        }
+    } else {
+        auto & header = phdrs[*headerIndex];
+        wri(header.p_filesz, std::max<uint64_t>(rdi(header.p_filesz), headerSize));
+        wri(header.p_memsz, std::max<uint64_t>(rdi(header.p_memsz), headerSize));
+    }
+
+    std::optional<uint64_t> finalSize;
+    if (metadataIndex)
+        finalSize = placeMetadataLoad(*metadataIndex, alignment);
+
+    const auto & header = phdrs[*headerIndex];
+    const Elf_Addr phdrAddress = rdi(header.p_vaddr) + rdi(hdr()->e_phoff) - rdi(header.p_offset);
+    wri(hdr()->e_phnum, phdrs.size());
+    rewriteHeaders(phdrAddress);
+
+    if (savedHeaderName)
+        updateSavedHeader(*savedHeaderName, phdrAddress);
+
+    if (finalSize)
+        fileContents->resize(*finalSize);
+}
+
+
+template<ElfFileParams>
+void ElfFile<ElfFileParamNames>::replaceDynamicInPlace()
+{
+    auto dynamic = replacedSections.find(".dynamic");
+    if (dynamic == replacedSections.end())
+        return;
+
+    const auto & shdr = findSectionHeader(".dynamic");
+    const size_t liveSize = (dynNullIndex(dynamic->second) + 1) * sizeof(Elf_Dyn);
+    if (liveSize > rdi(shdr.sh_size))
+        return;
+
+    checkOffset(fileContents, rdi(shdr.sh_offset), rdi(shdr.sh_size));
+    memset(fileContents->data() + rdi(shdr.sh_offset), 0, rdi(shdr.sh_size));
+    memcpy(fileContents->data() + rdi(shdr.sh_offset), dynamic->second.data(), liveSize);
+    replacedSections.erase(dynamic);
+}
+
+
+template<ElfFileParams>
+std::optional<size_t> ElfFile<ElfFileParamNames>::findHeaderLoad() const
+{
+    for (size_t i = 0; i < phdrs.size(); ++i) {
+        const auto & phdr = phdrs[i];
+        if (rdi(phdr.p_type) == PT_LOAD && rdi(phdr.p_offset) <= rdi(hdr()->e_phoff) &&
+            rdi(hdr()->e_phoff) - rdi(phdr.p_offset) < rdi(phdr.p_filesz))
+            return i;
+    }
+    return std::nullopt;
+}
+
+
+template<ElfFileParams>
+uint64_t ElfFile<ElfFileParamNames>::maxLoadEnd() const
+{
+    uint64_t end = 0;
+    for (const auto & phdr : phdrs)
+        if (rdi(phdr.p_type) == PT_LOAD)
+            end = std::max(end, uint64_t(rdi(phdr.p_vaddr)) + rdi(phdr.p_memsz));
+    return end;
+}
+
+
+template<ElfFileParams>
+std::optional<size_t> ElfFile<ElfFileParamNames>::findMetadataLoad(
+    const std::optional<size_t> & headerIndex, uint64_t memoryEnd) const
+{
+    auto hasContents = [this](uint64_t begin, uint64_t end) {
+        return std::any_of(fileContents->begin() + begin, fileContents->begin() + end,
+            [](unsigned char c) { return c != 0; });
+    };
+
+    for (size_t i = 0; !replacedSections.empty() && i < phdrs.size(); ++i) {
+        const auto & phdr = phdrs[i];
+        const uint64_t loadStart = rdi(phdr.p_vaddr);
+        if (headerIndex == i || rdi(phdr.p_type) != PT_LOAD ||
+            (rdi(phdr.p_flags) & PF_X) != 0 || rdi(phdr.p_filesz) != rdi(phdr.p_memsz) ||
+            (loadStart + rdi(phdr.p_memsz)) != memoryEnd)
+            continue;
+
+        bool hasSections = false;
+        bool reusable = true;
+        std::vector<std::pair<uint64_t, uint64_t>> ranges;
+        for (const auto & shdr : shdrs) {
+            if ((rdi(shdr.sh_flags) & SHF_ALLOC) == 0 || rdi(shdr.sh_size) == 0)
+                continue;
+            const uint64_t start = rdi(shdr.sh_addr);
+            const uint64_t end = (start + rdi(shdr.sh_size));
+            if (end <= loadStart || start >= memoryEnd)
+                continue;
+            hasSections = true;
+            if (start < loadStart || end > memoryEnd || !isMetadataSection(shdr) ||
+                rdi(shdr.sh_offset) < rdi(phdr.p_offset) ||
+                rdi(shdr.sh_offset) - rdi(phdr.p_offset) != start - loadStart)
+                reusable = false;
+            else
+                ranges.emplace_back(rdi(shdr.sh_offset),
+                    (rdi(shdr.sh_offset) + rdi(shdr.sh_size)));
+        }
+
+        for (size_t j = 0; reusable && j < phdrs.size(); ++j) {
+            if (i == j || rdi(phdrs[j].p_memsz) == 0)
+                continue;
+            const auto & other = phdrs[j];
+            if (rdi(other.p_vaddr) >= memoryEnd ||
+                (rdi(other.p_vaddr) + rdi(other.p_memsz)) <= loadStart)
+                continue;
+            const auto type = rdi(other.p_type);
+            if (type != PT_INTERP && type != PT_DYNAMIC && type != PT_NOTE &&
+                type != PT_GNU_PROPERTY && type != PT_MIPS_ABIFLAGS)
+                reusable = false;
+        }
+
+        std::sort(ranges.begin(), ranges.end());
+        uint64_t cursor = rdi(phdr.p_offset);
+        const uint64_t fileEnd = (cursor + rdi(phdr.p_filesz));
+        checkOffset(fileContents, cursor, rdi(phdr.p_filesz));
+        for (const auto & range : ranges) {
+            if (reusable && range.first > cursor && hasContents(cursor, range.first))
+                reusable = false;
+            cursor = std::max(cursor, range.second);
+        }
+        if (reusable && cursor < fileEnd && hasContents(cursor, fileEnd))
+            reusable = false;
+
+        if (hasSections && reusable)
+            return i;
+    }
+    return std::nullopt;
+}
+
+
+template<ElfFileParams>
+bool ElfFile<ElfFileParamNames>::isMetadataSection(const Elf_Shdr & shdr) const
+{
+    if ((rdi(shdr.sh_flags) & (SHF_TLS | SHF_EXECINSTR)) != 0 ||
+        rdi(shdr.sh_type) == SHT_NOBITS)
+        return false;
+    if (rdi(shdr.sh_type) == SHT_NOTE)
+        return true;
+    const std::string name = getSectionName(shdr);
+    return name == ".interp" || name == ".dynstr" || name == ".dynamic" ||
+        name == ".dynsym" || name == ".hash" || name == ".gnu.hash" ||
+        name == ".gnu.version" || name == ".gnu.version_r";
+}
+
+
+template<ElfFileParams>
+void ElfFile<ElfFileParamNames>::setLoadSegment(size_t index, Elf_Off offset,
+    Elf_Addr address, Elf_Addr size, unsigned flags, Elf_Addr align)
+{
+    auto & load = phdrs[index];
+    load = {};
+    wri(load.p_type, PT_LOAD);
+    wri(load.p_offset, offset);
+    wri(load.p_vaddr, wri(load.p_paddr, address));
+    wri(load.p_filesz, wri(load.p_memsz, size));
+    wri(load.p_flags, flags);
+    wri(load.p_align, align);
+}
+
+
+template<ElfFileParams>
+bool ElfFile<ElfFileParamNames>::headerRelocationRequired(size_t headerIndex,
+    const std::optional<size_t> & metadataIndex, uint64_t & headerSize) const
+{
+    const auto & header = phdrs[headerIndex];
+    headerSize = (rdi(hdr()->e_phoff) - rdi(header.p_offset) + phdrs.size() * sizeof(Elf_Phdr));
+    if (headerSize > rdi(header.p_filesz) && rdi(header.p_memsz) > rdi(header.p_filesz))
+        return true;
+    if (headerSize <= rdi(header.p_memsz))
+        return false;
+
+    const uint64_t end = (rdi(header.p_vaddr) + headerSize);
+    for (size_t i = 0; i < phdrs.size(); ++i) {
+        const bool isMetadataLoad = metadataIndex && *metadataIndex == i;
+        if (i != headerIndex && !isMetadataLoad && rdi(phdrs[i].p_type) == PT_LOAD &&
+            rdi(phdrs[i].p_memsz) != 0 && rdi(phdrs[i].p_vaddr) >= rdi(header.p_vaddr) &&
+            rdi(phdrs[i].p_vaddr) < end)
+            return true;
+    }
+    return false;
+}
+
+
+template<ElfFileParams>
+uint64_t ElfFile<ElfFileParamNames>::placeMetadataLoad(size_t metadataIndex, uint64_t alignment)
+{
+    uint64_t startAddress = 0;
+    for (size_t i = 0; i < phdrs.size(); ++i)
+        if (i != metadataIndex && rdi(phdrs[i].p_type) == PT_LOAD)
+            startAddress = std::max(startAddress,
+                uint64_t(rdi(phdrs[i].p_vaddr)) + rdi(phdrs[i].p_memsz));
+    startAddress = roundUp(startAddress, alignment);
+
+    uint64_t startOffset = roundUp(fileContents->size(), alignment);
+    if (canReuseMetadataSpace(metadataIndex, alignment))
+        startOffset = rdi(phdrs[metadataIndex].p_offset);
+
+    uint64_t neededSpace = 0;
+    for (const auto & section : replacedSections)
+        neededSpace = (neededSpace + roundUp(section.second.size(), sectionAlignment));
+
+    const uint64_t sectionHeaders = (startOffset + neededSpace);
+    const uint64_t fileSize = (sectionHeaders + shdrs.size() * sizeof(Elf_Shdr));
+    if (phdrs.size() >= PN_XNUM || fileSize > std::numeric_limits<Elf_Off>::max() ||
+        (startAddress + neededSpace) > std::numeric_limits<Elf_Addr>::max() ||
+        fileSize > fileContents->max_size())
+        error("executable layout exceeds address space");
+
+    /* Reused storage still holds the previous metadata until it is overwritten. */
+    fileContents->resize(std::max<uint64_t>(fileSize, fileContents->size()), 0);
+    setLoadSegment(metadataIndex, startOffset, startAddress, neededSpace, PF_R | PF_W, alignment);
+    wri(hdr()->e_shoff, sectionHeaders);
+
+    Elf_Off curOff = startOffset;
+    writeReplacedSections(curOff, startAddress, startOffset);
+    assert(curOff == sectionHeaders);
+
+    for (const auto & shdr : shdrs) {
+        const uint64_t start = rdi(shdr.sh_offset);
+        if (rdi(shdr.sh_type) == SHT_NOBITS || start < startOffset || start >= sectionHeaders)
+            continue;
+        const uint64_t padding = roundUp(rdi(shdr.sh_size), sectionAlignment) - rdi(shdr.sh_size);
+        memset(fileContents->data() + start + rdi(shdr.sh_size), 0, padding);
+    }
+
+    const Elf_Shdr nullHeader{};
+    memcpy(fileContents->data() + sectionHeaders, &nullHeader, sizeof nullHeader);
+    return fileSize;
+}
+
+
+template<ElfFileParams>
+void ElfFile<ElfFileParamNames>::updateSavedHeader(const std::string & name, Elf_Addr phdrAddress)
+{
+    const auto & shdr = findSectionHeader(name);
+    checkOffset(fileContents, rdi(shdr.sh_offset), sizeof(Elf_Ehdr));
+    Elf_Ehdr savedHeader = *hdr();
+    wri(savedHeader.e_phoff, phdrAddress - rdi(shdr.sh_addr));
+    memcpy(fileContents->data() + rdi(shdr.sh_offset), &savedHeader, sizeof savedHeader);
+}
+
+
+template<ElfFileParams>
+std::optional<std::string> ElfFile<ElfFileParamNames>::findSavedHeaderSection() const
+{
+    for (const auto & shdr : shdrs) {
+        const std::string name = getSectionName(shdr);
+        if (name.compare(0, sizeof(savedHeaderSectionName) - 1, savedHeaderSectionName) != 0 ||
+            rdi(shdr.sh_type) != SHT_PROGBITS || rdi(shdr.sh_flags) != SHF_ALLOC ||
+            rdi(shdr.sh_size) != sizeof(Elf_Ehdr))
+            continue;
+        checkOffset(fileContents, rdi(shdr.sh_offset), sizeof(Elf_Ehdr));
+        if (memcmp(fileContents->data() + rdi(shdr.sh_offset), hdr()->e_ident, EI_NIDENT) == 0)
+            return name;
+    }
+    return std::nullopt;
+}
+
+
+template<ElfFileParams>
+std::optional<std::string> ElfFile<ElfFileParamNames>::addSavedHeaderSection()
+{
+    for (const auto & phdr : phdrs) {
+        if (rdi(phdr.p_type) != PT_LOAD || rdi(phdr.p_offset) != 0 ||
+            rdi(phdr.p_filesz) < sizeof(Elf_Ehdr))
+            continue;
+
+        std::string name = savedHeaderSectionName;
+        while (tryFindSectionHeader(name))
+            name += '_';
+
+        const auto shstrtabName = getSectionName(shdrs.at(rdi(hdr()->e_shstrndx)));
+        Elf_Shdr shdr{};
+        wri(shdr.sh_name, sectionNames.size());
+        wri(shdr.sh_type, SHT_PROGBITS);
+        wri(shdr.sh_flags, SHF_ALLOC);
+        wri(shdr.sh_addr, rdi(phdr.p_vaddr));
+        wri(shdr.sh_size, sizeof(Elf_Ehdr));
+        wri(shdr.sh_addralign, sectionAlignment);
+        shdrs.push_back(shdr);
+        wri(hdr()->e_shnum, shdrs.size());
+        sectionNames += name + '\0';
+        replaceSection(shstrtabName, sectionNames.size()) = sectionNames;
+        return name;
+    }
+    return std::nullopt;
+}
+
+
+template<ElfFileParams>
+bool ElfFile<ElfFileParamNames>::canReuseMetadataSpace(size_t metadataIndex,
+    uint64_t alignment) const
+{
+    const auto & load = phdrs[metadataIndex];
+    const uint64_t offset = rdi(load.p_offset);
+    const uint64_t end = (offset + rdi(load.p_filesz));
+    if (rdi(load.p_type) != PT_LOAD || offset == 0 || offset % alignment != 0 ||
+        (rdi(hdr()->e_shoff) + shdrs.size() * sizeof(Elf_Shdr)) != fileContents->size() ||
+        rdi(hdr()->e_shoff) < end)
+        return false;
+
+    for (const auto & shdr : shdrs)
+        if (rdi(shdr.sh_type) != SHT_NOBITS && rdi(shdr.sh_size) != 0 &&
+            (rdi(shdr.sh_offset) + rdi(shdr.sh_size)) > offset &&
+            !hasReplacedSection(getSectionName(shdr)))
+            return false;
+
+    for (size_t i = 0; i < phdrs.size(); ++i) {
+        if (i == metadataIndex || rdi(phdrs[i].p_filesz) == 0)
+            continue;
+        const uint64_t begin = rdi(phdrs[i].p_offset);
+        const uint64_t finish = (begin + rdi(phdrs[i].p_filesz));
+        if (finish > offset && (begin < offset || finish > end))
+            return false;
+    }
+
+    return true;
 }
 
 
