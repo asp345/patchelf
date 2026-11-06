@@ -8,7 +8,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v7
-    - run: shellcheck tests/*.sh
+    - run: shellcheck tests/*.sh tests/run-tests
   nix:
     runs-on: ubuntu-latest
     steps:
@@ -20,13 +20,21 @@ jobs:
     runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v7
-    - name: get toolchain version
+    - name: Install cross compilers and qemu for tests/cross-arch.sh
       run: |
-        c++ --version
-        ld --version
-        autoconf --version
+        sudo apt-get update
+        sudo apt-get install -y --no-install-recommends qemu-user \
+          gcc-aarch64-linux-gnu libc6-dev-arm64-cross \
+          gcc-i686-linux-gnu libc6-dev-i386-cross \
+          gcc-arm-linux-gnueabihf libc6-dev-armhf-cross \
+          gcc-powerpc-linux-gnu libc6-dev-powerpc-cross \
+          gcc-s390x-linux-gnu libc6-dev-s390x-cross \
+          gcc-mips64el-linux-gnuabi64 libc6-dev-mips64el-cross
     - run: |
-        ./bootstrap.sh
-        mkdir build && cd build
-        ../configure --with-asan --with-ubsan
-        make -j$(nproc) check
+        rustc --version
+        cargo --version
+    - run: cargo fmt --check
+    - run: cargo clippy --all-targets -- -D warnings
+    - run: cargo build --release
+    - run: cargo test
+    - run: make -C tests -j$(nproc) check

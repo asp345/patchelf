@@ -16,8 +16,8 @@ charset = utf-8
 indent_style = space
 indent_size = 2
 
-# Match C++/C/shell, set indent to spaces with width of four
-[*.{hpp,cc,hh,c,h,sh}]
+# Match Rust/C/shell, set indent to spaces with width of four
+[*.{rs,c,h,sh}]
 indent_style = space
 indent_size = 4
 

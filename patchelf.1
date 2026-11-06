@@ -1,7 +1,7 @@
 .\" Process this file with
 .\" groff -man -Tascii patchelf.1
 .\"
-.TH PATCHELF 1 "JULY 2022" PATCHELF "User Manuals"
+.TH PATCHELF 1 "NOVEMBER 2026" PATCHELF "User Manuals"
 .SH NAME
 patchelf - Modify ELF files
 
@@ -27,7 +27,9 @@ Any option taking a string argument can also take a file by prefixing the
 argument with the @ symbol. See EXAMPLES
 
 .IP "--page-size SIZE"
-Uses the given page size instead of the default.
+Aligns a newly added segment to SIZE (a power of two) instead of the
+largest of the architecture's page size and the alignment of the existing
+segments.
 
 .IP "--set-interpreter INTERPRETER"
 Change the dynamic loader ("ELF interpreter") of executable given to
@@ -114,9 +116,8 @@ instead of an exact path. The cache is built once from an unpatched binary;
 this option cannot be combined with \fB--force-rpath\fR.
 
 .IP "--no-sort"
-Do not sort program headers or section headers.  This is useful when
-debugging patchelf, because it makes it easier to read diffs of the
-output of "readelf -a".
+Accepted for compatibility. patchelf never reorders program headers or
+section headers.
 
 .IP "--add-debug-tag"
 Adds DT_DEBUG tag to the .dynamic section if not yet present in an ELF
@@ -145,9 +146,10 @@ Symbol names do not contain version specifier that are also shown in the output 
 .IP "--no-clobber-old-sections"
 Do not clobber old section values.
 
-patchelf defaults to overwriting replaced header sections with garbage to ensure they are not
-used accidentally. This option allows to opt out of that behavior, so that binaries that attempt
-to read their own headers from a fixed offset (e.g. Firefox) continue working.
+patchelf defaults to zeroing the old copies of tables it moves, so that they are not
+used accidentally and stale paths do not remain in the file. This option allows to opt out of
+that behavior, so that binaries that attempt to read their own headers from a fixed offset
+(e.g. Firefox) continue working.
 
 Use sparingly and with caution.
 

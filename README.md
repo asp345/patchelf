@@ -78,44 +78,65 @@ libraries.  In particular, it can do the following:
   ```
 
 
+## How it works
+
+patchelf is written in Rust and has no dependencies beyond the standard
+library. Each file goes through three stages:
+
+1. **Load** (`src/image.rs`): the file is parsed into an editable model.
+   Everything is found the way the dynamic loader finds it, through the
+   program headers and the dynamic section. Section headers are kept
+   consistent but are never needed.
+2. **Passes** (`src/passes/`): each command-line feature is a separate pass
+   that edits only the model. Passes run in a fixed order.
+3. **Layout** (`src/layout.rs`): once, after all passes, patchelf decides
+   where everything goes. Code and data never move. Tables that grew
+   (interpreter, dynamic section, string table, ...) move into one new
+   segment at the end of the file, and a later run rebuilds that segment
+   instead of adding another. The program header table stays right after the
+   ELF header, as tools such as `strip` expect; when it needs more entries,
+   the loader metadata that follows it is moved out of the way.
+
+Before anything is written, the result is checked (`src/validate.rs`) for
+overlapping segments, misplaced headers, dangling dynamic entries and
+similar problems. If the edit introduced any, the file is left untouched.
+
+Old copies of moved tables are zeroed, so stale paths don't stay in the file
+(Nix scans files for store paths). `--no-clobber-old-sections` turns that off.
+
+If the program header table itself ever has to move, Linux 5.18 or newer
+(or a recent qemu-user) is needed to run the result; patchelf places it so
+that older loaders find it too when that costs little padding.
+
 ## Compiling and Testing
 
-### Via [GNU Autotools](https://www.gnu.org/software/automake/manual/html_node/Autotools-Introduction.html)
 ```console
-./bootstrap.sh
-./configure
-make
-make check
-sudo make install
+cargo build --release
+cargo test
+make -C tests check
+sudo install -m755 target/release/patchelf /usr/local/bin/
 ```
 
-### Via [CMake](https://cmake.org/) (and [Ninja](https://ninja-build.org/))
+`make -C tests check` builds small C programs with the system compiler and
+runs the shell tests in `tests/` against `target/release/patchelf`
+(override with `PATCHELF=...`; run a subset with `TESTS="soname.sh ..."`).
+`tests/cross-arch.sh` also runs patched programs for other architectures under
+qemu-user when cross compilers (e.g. `aarch64-linux-gnu-gcc`) and qemu are
+installed.
 
-```console
-mkdir build
-cd build
-cmake .. -GNinja
-ninja all
-sudo ninja install
-```
-
-### Via [Meson](https://mesonbuild.com/) (and [Ninja](https://ninja-build.org/))
-
-```console
-mkdir build
-meson configure build
-cd build
-ninja all
-sudo ninja install
-```
+`cargo test` includes a robustness test that feeds randomly damaged ELF
+files through every pass. `PATCHELF_ROBUSTNESS_ITERS`,
+`PATCHELF_ROBUSTNESS_SEED` and `PATCHELF_ROBUSTNESS_DIR` make it run longer,
+with another seed, or on more files.
 
 ### Via Nix
 
-You can build with Nix in several ways.
+1. `nix build` produces `./result/bin/patchelf` and runs the test suite.
+   `nix build .#patchelf-musl` and `.#patchelf-static` build musl and static
+   binaries, and `.#patchelf-win64` cross-compiles for Windows.
 
-1. Building via `nix build` will produce the result in `./result/bin/patchelf`. If you would like to build _patchelf_ with _musl_ try `nix build .#patchelf-musl`
-
-2. You can launch a development environment with `nix develop` and follow the autotools steps above. If you would like to develop with _musl_ try `nix develop .#musl`
+2. `nix develop` opens a shell with the Rust toolchain and the test
+   dependencies.
 
 ## Help and resources
 

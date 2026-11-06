@@ -27,64 +27,24 @@
       ];
       forAllSystems = lib.genAttrs supportedSystems;
 
-      version = lib.removeSuffix "\n" (builtins.readFile ./version);
+      version = (lib.importTOML ./Cargo.toml).package.version;
       pkgs = nixpkgs.legacyPackages.x86_64-linux;
 
-      baseSrcFiles = [
-        ./COPYING
-        ./README.md
-        ./completions
-        ./patchelf.1
-        ./patchelf.spec.in
-        (lib.fileset.difference ./src (
-          lib.fileset.unions [
-            ./src/Makefile.am
-            ./src/CMakeLists.txt
-            ./src/meson.build
-          ]
-        ))
-        (lib.fileset.difference ./tests (
-          lib.fileset.unions [
-            ./tests/Makefile.am
-            #./tests/CMakeLists.txt
-            #./tests/meson.build
-          ]
-        ))
-        ./version
-      ];
-
-      autotoolsSrcFiles = [
-        ./Makefile.am
-        ./src/Makefile.am
-        ./tests/Makefile.am
-        ./configure.ac
-        ./m4
-      ];
-
-      cmakeSrcFiles = [
-        ./CMakeLists.txt
-        ./src/CMakeLists.txt
-        #./tests/CMakeLists.txt
-      ];
-
-      mesonSrcFiles = [
-        ./meson.build
-        ./meson.options
-        ./src/meson.build
-        #./tests/meson.build
-      ];
-
-      autotoolsSrc = lib.fileset.toSource {
+      src = lib.fileset.toSource {
         root = ./.;
-        fileset = lib.fileset.unions (baseSrcFiles ++ autotoolsSrcFiles);
+        fileset = lib.fileset.unions [
+          ./COPYING
+          ./Cargo.lock
+          ./Cargo.toml
+          ./README.md
+          ./completions
+          ./patchelf.1
+          ./src
+          ./tests
+        ];
       };
 
-      patchelfFor =
-        pkgs:
-        pkgs.callPackage ./package-autotools.nix {
-          inherit version;
-          src = autotoolsSrc;
-        };
+      patchelfFor = pkgs: pkgs.callPackage ./package.nix { inherit version src; };
 
       # We don't apply flake-parts to the whole flake so that non-development attributes
       # load without fetching any development inputs.
@@ -107,86 +67,33 @@
       };
 
       hydraJobs = {
-        tarball = pkgs.releaseTools.sourceTarball rec {
-          name = "patchelf-tarball";
-          inherit version;
-          src = lib.fileset.toSource {
-            root = ./.;
-            fileset = lib.fileset.unions (baseSrcFiles ++ autotoolsSrcFiles ++ cmakeSrcFiles ++ mesonSrcFiles);
-          };
-          versionSuffix = ""; # obsolete
-          preAutoconf = "echo ${version} > version";
-
-          # portable configure shouldn't have a shebang pointing to the nix store
-          postConfigure = ''
-            sed -i '1s|^.*$|#!/bin/sh|' ./configure
-          '';
-          postDist = ''
-            cp README.md $out/
-            echo "doc readme $out/README.md" >> $out/nix-support/hydra-build-products
-          '';
-        };
-
-        coverage =
-          (pkgs.releaseTools.coverageAnalysis {
-            name = "patchelf-coverage";
-            src = self.hydraJobs.tarball;
-            lcovFilter = [ "*/tests/*" ];
-          }).overrideAttrs
-            (old: {
-              preCheck = ''
-                # coverage cflag breaks this target
-                NIX_CFLAGS_COMPILE=''${NIX_CFLAGS_COMPILE//--coverage} make -C tests phdr-corruption.so
-              '';
-            });
+        tarball = pkgs.runCommand "patchelf-tarball-${version}" { } ''
+          mkdir -p $out/tarballs $out/nix-support
+          cp -r ${src} patchelf-${version}
+          chmod -R u+w patchelf-${version}
+          tar -czf $out/tarballs/patchelf-${version}.tar.gz patchelf-${version}
+          tar -cjf $out/tarballs/patchelf-${version}.tar.bz2 patchelf-${version}
+          cp ${./README.md} $out/README.md
+          for f in $out/tarballs/*; do echo "file source-dist $f" >> $out/nix-support/hydra-build-products; done
+          echo "doc readme $out/README.md" >> $out/nix-support/hydra-build-products
+        '';
 
         build = forAllSystems (system: self.packages.${system}.patchelf);
-        build-sanitized = forAllSystems (
-          system:
-          self.packages.${system}.patchelf.overrideAttrs (old: {
-            configureFlags = [
-              "--with-asan "
-              "--with-ubsan"
-            ];
-            # -Wno-unused-command-line-argument is for clang, which does not like
-            # our cc wrapper arguments
-            CFLAGS = "-Werror -Wno-unused-command-line-argument";
-          })
-        );
 
-        build-cmake = forAllSystems (system: self.packages.${system}.patchelf-cmake);
-
-        build-meson = forAllSystems (system: self.packages.${system}.patchelf-meson);
-
-        # x86_64-linux seems to be only working clangStdenv at the moment
-        build-sanitized-clang = lib.genAttrs [ "x86_64-linux" ] (
-          system:
-          self.hydraJobs.build-sanitized.${system}.override {
-            stdenv = nixpkgs.legacyPackages.${system}.llvmPackages_latest.libcxxStdenv;
-          }
-        );
-
-        # To get mingw compiler from hydra cache
-        inherit (self.packages.x86_64-linux) patchelf-win32 patchelf-win64;
+        # To get the mingw compiler from the hydra cache
+        inherit (self.packages.x86_64-linux) patchelf-win64;
 
         release = pkgs.releaseTools.aggregate {
-          name = "patchelf-${self.hydraJobs.tarball.version}";
+          name = "patchelf-${version}";
           constituents = [
             self.hydraJobs.tarball
             self.hydraJobs.build.x86_64-linux
             self.hydraJobs.build.i686-linux
-            self.hydraJobs.build-cmake.x86_64-linux
-            self.hydraJobs.build-meson.x86_64-linux
             # FIXME: add aarch64 emulation to our github action...
             #self.hydraJobs.build.aarch64-linux
-            self.hydraJobs.build-sanitized.x86_64-linux
-            #self.hydraJobs.build-sanitized.aarch64-linux
-            self.hydraJobs.build-sanitized.i686-linux
-            self.hydraJobs.build-sanitized-clang.x86_64-linux
           ];
           meta.description = "Release-critical builds";
         };
-
       };
 
       checks = forAllSystems (
@@ -200,38 +107,24 @@
       devShells = forAllSystems (
         system:
         let
-          mkShell =
-            patchelf:
-            patchelf.overrideAttrs (
-              old:
-              let
-                pkgs = nixpkgs.legacyPackages.${system};
-                modular = devFlake.getSystem pkgs.stdenv.buildPlatform.system;
-              in
-              {
-                env = (old.env or { }) // {
-                  _NIX_PRE_COMMIT_HOOKS_CONFIG = "${(pkgs.formats.yaml { }).generate "pre-commit-config.yaml"
-                    modular.pre-commit.settings.rawConfig
-                  }";
-                };
-                nativeBuildInputs = (old.nativeBuildInputs or [ ]) ++ [
-                  #pkgs.buildPackages.cmake
-                  #pkgs.buildPackages.meson
-                  #pkgs.buildPackages.ninja
-                  pkgs.buildPackages.lld
-                  pkgs.buildPackages.mold
-                  modular.pre-commit.settings.package
-                  (pkgs.buildPackages.writeScriptBin "pre-commit-hooks-install" modular.pre-commit.settings.installationScript)
-                ];
-              }
-            );
+          pkgs = nixpkgs.legacyPackages.${system};
+          modular = devFlake.getSystem pkgs.stdenv.buildPlatform.system;
         in
         {
-          glibc = mkShell self.packages.${system}.patchelf;
-          default = self.devShells.${system}.glibc;
-        }
-        // lib.optionalAttrs (system != "i686-linux") {
-          musl = mkShell self.packages.${system}.patchelf-musl;
+          default = pkgs.mkShell {
+            inputsFrom = [ self.packages.${system}.patchelf ];
+            packages = [
+              pkgs.clippy
+              pkgs.rustfmt
+              pkgs.lld
+              pkgs.mold
+              modular.pre-commit.settings.package
+              (pkgs.writeScriptBin "pre-commit-hooks-install" modular.pre-commit.settings.installationScript)
+            ];
+            env._NIX_PRE_COMMIT_HOOKS_CONFIG = "${(pkgs.formats.yaml { }).generate "pre-commit-config.yaml"
+              modular.pre-commit.settings.rawConfig
+            }";
+          };
         }
       );
 
@@ -239,58 +132,20 @@
         system:
         let
           pkgs = nixpkgs.legacyPackages.${system};
-
-          patchelfForWindowsStatic =
-            pkgs:
-            (pkgs.callPackage ./package-autotools.nix {
-              inherit version;
-              src = autotoolsSrc;
-              # On windows we use win32 threads to get a static binary,
-              # otherwise `-static` below doesn't work.
-              stdenv = pkgs.stdenv.override (old: {
-                cc = old.cc.override (old: {
-                  cc = old.cc.override {
-                    threadsCross = {
-                      model = "win32";
-                      package = null;
-                    };
-                  };
-                });
-              });
-            }).overrideAttrs
-              (old: {
-                NIX_CFLAGS_COMPILE = "-static";
-              });
         in
         {
           patchelf = patchelfFor pkgs;
           default = self.packages.${system}.patchelf;
 
-          patchelf-cmake = pkgs.callPackage ./package-cmake.nix {
-            inherit version;
-            src = lib.fileset.toSource {
-              root = ./.;
-              fileset = lib.fileset.unions (baseSrcFiles ++ cmakeSrcFiles);
-            };
-          };
+          # Statically linked, for use outside Nix.
+          patchelf-static = patchelfFor pkgs.pkgsStatic;
 
-          patchelf-meson = pkgs.callPackage ./package-meson.nix {
-            inherit version;
-            src = lib.fileset.toSource {
-              root = ./.;
-              fileset = lib.fileset.unions (baseSrcFiles ++ mesonSrcFiles);
-            };
-          };
-
-          # This is a good test to see if packages can be cross-compiled. It also
-          # tests if our testsuite uses target-prefixed executable names.
+          # Tests whether the package cross-compiles.
           patchelf-musl-cross = patchelfFor pkgs.pkgsCross.musl64;
-          patchelf-netbsd-cross = patchelfFor pkgs.pkgsCross.x86_64-netbsd;
-          patchelf-win32 = patchelfForWindowsStatic pkgs.pkgsCross.mingw32;
-          patchelf-win64 = patchelfForWindowsStatic pkgs.pkgsCross.mingwW64;
+          patchelf-win64 = patchelfFor pkgs.pkgsCross.mingwW64;
         }
         // lib.optionalAttrs (system != "i686-linux") {
-          patchelf-musl = patchelfFor nixpkgs.legacyPackages.${system}.pkgsMusl;
+          patchelf-musl = patchelfFor pkgs.pkgsMusl;
         }
       );
 

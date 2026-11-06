@@ -1,5 +1,63 @@
 # Release History
 
+## 0.20.0 (unreleased)
+
+patchelf has been rewritten in Rust. It has the same options and is meant as
+a drop-in replacement, but it is a new implementation rather than a port, and
+the C++ sources and the Autotools, CMake and Meson builds are gone. Build with
+`cargo build --release`; run the tests with `cargo test` and
+`make -C tests check`.
+
+### How files are rewritten
+
+* Each option is a separate pass over an in-memory model of the file, and the
+  output layout is computed once, after all passes.
+* Code and data are never moved. Tables that grow move into a single new
+  segment at the end of the file, and later runs rebuild that segment instead
+  of adding more segments.
+* The program header table stays right after the ELF header, so tools such as
+  GNU `strip` keep working on patched files. When it needs more entries,
+  loader metadata after it (interpreter, notes, symbol and hash tables, ...)
+  moves out of the way, and unused `PT_NULL` entries are reused.
+* Files are understood through the program headers and the dynamic section,
+  like the dynamic loader does. Files without section headers can be patched.
+* Every result is checked for overlapping segments, misplaced headers,
+  dangling dynamic entries and similar problems before it is written; a file
+  that would be broken is left untouched.
+
+### Behaviour changes
+
+* If the program header table has to move (rare), running the result needs
+  Linux 5.18 or newer, or a recent qemu-user, unless it could be placed where
+  older loaders look for it.
+* `--add-needed` no longer adds a library that is already needed.
+* `--force-rpath` on a file with both `DT_RPATH` and `DT_RUNPATH` drops the
+  `DT_RUNPATH`, which would otherwise make the loader ignore `DT_RPATH`.
+* `--shrink-rpath` keeps empty run path entries (the current directory) like
+  other relative ones, and ignores unreadable or non-ELF files instead of
+  failing.
+* Strings that are no longer referenced (old run paths, sonames, library and
+  symbol names) are overwritten, not only old run paths.
+* Files whose dynamic section is not described by `PT_DYNAMIC` are rejected:
+  the loader ignores such a section, so editing it had no effect.
+* `--print-interpreter`, `--print-needed` and `--print-soname` handle
+  `objcopy --only-keep-debug` files: the former reports that the interpreter
+  is not in the file instead of printing garbage, the latter print nothing.
+* `--page-size` must be a power of two, unknown `--options` are errors rather
+  than file names, and `--no-sort` is accepted but has no effect.
+* Error messages are reworded and name the file they refer to.
+* Files are still edited in place, keeping links and ownership; a running
+  executable is replaced through a rename.
+
+### Bug fixes
+
+* `--rename-dynamic-symbols` only renumbers relocations that refer to the
+  dynamic symbol table (it used to also change `--emit-relocs` relocations),
+  keeps the System V hash table chains intact, and is refused on MIPS, where
+  symbol order is tied to the GOT.
+* Malformed files can no longer make patchelf crash or allocate huge amounts
+  of memory.
+
 ## 0.19.3 (October 30, 2026)
 
 A bug fix release for executable rewrites, symbol version definitions, and zsh
