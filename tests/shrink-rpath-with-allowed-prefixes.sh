@@ -10,25 +10,25 @@ cp main "${SCRATCH}"/
 cp libfoo.so libbar.so "${SCRATCH}/libsA/"
 cp libfoo.so libbar.so "${SCRATCH}/libsB/"
 
-oldRPath=$(../src/patchelf --print-rpath "${SCRATCH}/main")
+oldRPath=$("${PATCHELF}" --print-rpath "${SCRATCH}/main")
 if test -z "$oldRPath"; then oldRPath="/oops"; fi
 pathA="$(pwd)/${SCRATCH}/libsA"
 pathB="$(pwd)/${SCRATCH}/libsB"
-../src/patchelf --force-rpath --set-rpath "$oldRPath:$pathA:$pathB" "${SCRATCH}/main"
+"${PATCHELF}" --force-rpath --set-rpath "$oldRPath:$pathA:$pathB" "${SCRATCH}/main"
 
 cp "${SCRATCH}"/main "${SCRATCH}/mainA"
 cp "${SCRATCH}"/main "${SCRATCH}/mainB"
 
-../src/patchelf --shrink-rpath "${SCRATCH}/main"
-../src/patchelf --shrink-rpath --allowed-rpath-prefixes "$oldRPath:$pathA" "${SCRATCH}/mainA"
-../src/patchelf --shrink-rpath --allowed-rpath-prefixes "$oldRPath:$pathB" "${SCRATCH}/mainB"
+"${PATCHELF}" --shrink-rpath "${SCRATCH}/main"
+"${PATCHELF}" --shrink-rpath --allowed-rpath-prefixes "$oldRPath:$pathA" "${SCRATCH}/mainA"
+"${PATCHELF}" --shrink-rpath --allowed-rpath-prefixes "$oldRPath:$pathB" "${SCRATCH}/mainB"
 
 check() {
     exe=$1
     mustContain=$2
     mustNotContain=$3
 
-    rpath=$(../src/patchelf --print-rpath "$exe")
+    rpath=$("${PATCHELF}" --print-rpath "$exe")
     echo "RPATH of $exe after: $rpath"
 
     if ! echo "$rpath" | grep -q "$mustContain"; then

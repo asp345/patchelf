@@ -11,7 +11,7 @@
 
 SCRATCH=scratch/$(basename "$0" .sh)
 READELF=${READELF:-readelf}
-PATCHELF=../src/patchelf
+PATCHELF=${PATCHELF:?}
 
 if ! ${READELF} -d main | grep -q MIPS_RLD_MAP_REL; then
     echo "No MIPS_RLD_MAP_REL dynamic section entry, skipping"
@@ -41,12 +41,12 @@ check main
 
 # DT_NEEDED entries come first, so removing one shifts every later entry down.
 cp main "${SCRATCH}/needed"
-${PATCHELF} --remove-needed libfoo.so "${SCRATCH}/needed"
+"${PATCHELF}" --remove-needed libfoo.so "${SCRATCH}/needed"
 check "${SCRATCH}/needed"
 
 # Same for --remove-rpath; only meaningful when the toolchain emitted one.
-if [ -n "$(${PATCHELF} --print-rpath main)" ]; then
+if [ -n "$("${PATCHELF}" --print-rpath main)" ]; then
     cp main "${SCRATCH}/rpath"
-    ${PATCHELF} --remove-rpath "${SCRATCH}/rpath"
+    "${PATCHELF}" --remove-rpath "${SCRATCH}/rpath"
     check "${SCRATCH}/rpath"
 fi

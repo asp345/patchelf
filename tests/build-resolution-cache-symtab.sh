@@ -7,7 +7,7 @@
 # patchelf may legitimately reorder .symtab/.dynsym).
 SCRATCH=scratch/$(basename "$0" .sh)
 READELF=${READELF:-readelf}
-PATCHELF=$(readlink -f "../src/patchelf")
+PATCHELF=$(readlink -f "${PATCHELF:?}")
 
 rm -rf "${SCRATCH}"
 mkdir -p "${SCRATCH}/libs"
@@ -27,15 +27,15 @@ if [ "$(wc -l < "${SCRATCH}/expected")" -lt 5 ]; then
     exit 77
 fi
 
-${PATCHELF} --set-rpath "$(pwd)/${SCRATCH}/libs" "${SCRATCH}/main"
-${PATCHELF} --build-resolution-cache "${SCRATCH}/main"
+"${PATCHELF}" --set-rpath "$(pwd)/${SCRATCH}/libs" "${SCRATCH}/main"
+"${PATCHELF}" --build-resolution-cache "${SCRATCH}/main"
 if ! ${READELF} -SW "${SCRATCH}/main" | grep -q "\.note\.nixos\.ldcache"; then
     echo "FAIL: test setup did not create a resolution cache note"
     exit 1
 fi
 
 # Grow .dynstr so rewriteSections() runs after removeResolutionCache().
-${PATCHELF} --set-rpath "$(pwd)/${SCRATCH}/libs:$(pwd)/${SCRATCH}/libs-padding-to-grow-dynstr-xxxxxxxxxxxxxxxxxxxx" "${SCRATCH}/main"
+"${PATCHELF}" --set-rpath "$(pwd)/${SCRATCH}/libs:$(pwd)/${SCRATCH}/libs-padding-to-grow-dynstr-xxxxxxxxxxxxxxxxxxxx" "${SCRATCH}/main"
 
 section_syms "${SCRATCH}/main" > "${SCRATCH}/actual"
 if ! diff -u "${SCRATCH}/expected" "${SCRATCH}/actual"; then

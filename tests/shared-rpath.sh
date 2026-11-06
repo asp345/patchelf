@@ -1,6 +1,6 @@
 #! /bin/sh -e
 
-PATCHELF=$(readlink -f "../src/patchelf")
+PATCHELF=$(readlink -f "${PATCHELF:?}")
 SCRATCH="scratch/$(basename "$0" .sh)"
 NM=${NM:-nm}
 STRINGS=${STRINGS:-strings}

@@ -10,12 +10,12 @@ cp main "${SCRATCH}"/
 cp libfoo.so "${SCRATCH}/libsA/"
 cp libbar.so "${SCRATCH}/libsB/"
 
-oldRPath=$(../src/patchelf --print-rpath "${SCRATCH}/main")
+oldRPath=$("${PATCHELF}" --print-rpath "${SCRATCH}/main")
 if test -z "$oldRPath"; then oldRPath="/oops"; fi
 
-../src/patchelf --force-rpath --set-rpath "$oldRPath:$(pwd)/${SCRATCH}/libsA:$(pwd)/${SCRATCH}/libsB" "${SCRATCH}/main" --output "${SCRATCH}/main2"
+"${PATCHELF}" --force-rpath --set-rpath "$oldRPath:$(pwd)/${SCRATCH}/libsA:$(pwd)/${SCRATCH}/libsB" "${SCRATCH}/main" --output "${SCRATCH}/main2"
 # make sure it copies even when there is nothing to do (because rpath is already set)
-../src/patchelf --force-rpath --set-rpath "$oldRPath:$(pwd)/${SCRATCH}/libsA:$(pwd)/${SCRATCH}/libsB" "${SCRATCH}/main2" --output "${SCRATCH}/main3"
+"${PATCHELF}" --force-rpath --set-rpath "$oldRPath:$(pwd)/${SCRATCH}/libsA:$(pwd)/${SCRATCH}/libsB" "${SCRATCH}/main2" --output "${SCRATCH}/main3"
 
 if test "$(uname)" = FreeBSD; then
     LD_LIBRARY_PATH="$(pwd)/${SCRATCH}/libsB"

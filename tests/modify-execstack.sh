@@ -1,6 +1,6 @@
 #! /bin/sh -e
 SCRATCH=scratch/$(basename "$0" .sh)
-PATCHELF=$(readlink -f "../src/patchelf")
+PATCHELF=$(readlink -f "${PATCHELF:?}")
 
 rm -rf "${SCRATCH}"
 mkdir -p "${SCRATCH}"
@@ -17,25 +17,25 @@ cd "${SCRATCH}"
 
 cp simple backup
 
-if ! ${PATCHELF} --print-execstack simple | grep -q 'execstack: -'; then
+if ! "${PATCHELF}" --print-execstack simple | grep -q 'execstack: -'; then
 	echo "[simple] wrong initial execstack detection"
-	${PATCHELF} --print-execstack simple
+	"${PATCHELF}" --print-execstack simple
 	exit 1
 fi
 
-if ! ${PATCHELF} --clear-execstack simple; then
+if ! "${PATCHELF}" --clear-execstack simple; then
 	echo "[simple] failed noop initial clear"
 	exit 1
 fi
 
-if ! ${PATCHELF} --set-execstack simple; then
+if ! "${PATCHELF}" --set-execstack simple; then
 	echo "[simple] failed set"
 	exit 1
 fi
 
-if ! ${PATCHELF} --print-execstack simple | grep -q 'execstack: X'; then
+if ! "${PATCHELF}" --print-execstack simple | grep -q 'execstack: X'; then
 	echo "[simple] wrong execstack detection after set"
-	${PATCHELF} --print-execstack simple
+	"${PATCHELF}" --print-execstack simple
 	exit 1
 fi
 
@@ -44,19 +44,19 @@ if diff simple backup; then
 	exit 1
 fi
 
-if ! ${PATCHELF} --set-execstack simple; then
+if ! "${PATCHELF}" --set-execstack simple; then
 	echo "[simple] failed noop set"
 	exit 1
 fi
 
-if ! ${PATCHELF} --clear-execstack simple; then
+if ! "${PATCHELF}" --clear-execstack simple; then
 	echo "[simple] failed clear after set"
 	exit 1
 fi
 
-if ! ${PATCHELF} --print-execstack simple | grep -q 'execstack: -'; then
+if ! "${PATCHELF}" --print-execstack simple | grep -q 'execstack: -'; then
 	echo "[simple] wrong execstack detection after clear after set"
-	${PATCHELF} --print-execstack simple
+	"${PATCHELF}" --print-execstack simple
 	exit 1
 fi
 
@@ -70,25 +70,25 @@ fi
 
 cp simple-execstack backup
 
-if ! ${PATCHELF} --print-execstack simple-execstack | grep -q 'execstack: X'; then
+if ! "${PATCHELF}" --print-execstack simple-execstack | grep -q 'execstack: X'; then
 	echo "[simple-execstack] wrong initial execstack detection"
-	${PATCHELF} --print-execstack simple-execstack
+	"${PATCHELF}" --print-execstack simple-execstack
 	exit 1
 fi
 
-if ! ${PATCHELF} --set-execstack simple-execstack; then
+if ! "${PATCHELF}" --set-execstack simple-execstack; then
 	echo "[simple-execstack] failed noop initial set"
 	exit 1
 fi
 
-if ! ${PATCHELF} --clear-execstack simple-execstack; then
+if ! "${PATCHELF}" --clear-execstack simple-execstack; then
 	echo "[simple-execstack] failed clear"
 	exit 1
 fi
 
-if ! ${PATCHELF} --print-execstack simple-execstack | grep -q 'execstack: -'; then
+if ! "${PATCHELF}" --print-execstack simple-execstack | grep -q 'execstack: -'; then
 	echo "[simple-execstack] wrong execstack detection after clear"
-	${PATCHELF} --print-execstack simple-execstack
+	"${PATCHELF}" --print-execstack simple-execstack
 	exit 1
 fi
 
@@ -97,19 +97,19 @@ if diff simple-execstack backup; then
 	exit 1
 fi
 
-if ! ${PATCHELF} --clear-execstack simple-execstack; then
+if ! "${PATCHELF}" --clear-execstack simple-execstack; then
 	echo "[simple-execstack] failed noop clear"
 	exit 1
 fi
 
-if ! ${PATCHELF} --set-execstack simple-execstack; then
+if ! "${PATCHELF}" --set-execstack simple-execstack; then
 	echo "[simple-execstack] failed set after clear"
 	exit 1
 fi
 
-if ! ${PATCHELF} --print-execstack simple-execstack | grep -q 'execstack: X'; then
+if ! "${PATCHELF}" --print-execstack simple-execstack | grep -q 'execstack: X'; then
 	echo "[simple-execstack] wrong execstack detection after set after clear"
-	${PATCHELF} --print-execstack simple-execstack
+	"${PATCHELF}" --print-execstack simple-execstack
 	exit 1
 fi
 
@@ -123,25 +123,25 @@ fi
 
 cp libsimple.so backup
 
-if ! ${PATCHELF} --print-execstack libsimple.so | grep -q 'execstack: -'; then
+if ! "${PATCHELF}" --print-execstack libsimple.so | grep -q 'execstack: -'; then
 	echo "[libsimple.so] wrong initial execstack detection"
-	${PATCHELF} --print-execstack libsimple.so
+	"${PATCHELF}" --print-execstack libsimple.so
 	exit 1
 fi
 
-if ! ${PATCHELF} --clear-execstack libsimple.so; then
+if ! "${PATCHELF}" --clear-execstack libsimple.so; then
 	echo "[libsimple.so] failed noop initial clear"
 	exit 1
 fi
 
-if ! ${PATCHELF} --set-execstack libsimple.so; then
+if ! "${PATCHELF}" --set-execstack libsimple.so; then
 	echo "[libsimple.so] failed set"
 	exit 1
 fi
 
-if ! ${PATCHELF} --print-execstack libsimple.so | grep -q 'execstack: X'; then
+if ! "${PATCHELF}" --print-execstack libsimple.so | grep -q 'execstack: X'; then
 	echo "[libsimple.so] wrong execstack detection after set"
-	${PATCHELF} --print-execstack libsimple.so
+	"${PATCHELF}" --print-execstack libsimple.so
 	exit 1
 fi
 
@@ -150,19 +150,19 @@ if diff libsimple.so backup; then
 	exit 1
 fi
 
-if ! ${PATCHELF} --set-execstack libsimple.so; then
+if ! "${PATCHELF}" --set-execstack libsimple.so; then
 	echo "[libsimple.so] failed noop set"
 	exit 1
 fi
 
-if ! ${PATCHELF} --clear-execstack libsimple.so; then
+if ! "${PATCHELF}" --clear-execstack libsimple.so; then
 	echo "[libsimple.so] failed clear after set"
 	exit 1
 fi
 
-if ! ${PATCHELF} --print-execstack libsimple.so | grep -q 'execstack: -'; then
+if ! "${PATCHELF}" --print-execstack libsimple.so | grep -q 'execstack: -'; then
 	echo "[libsimple.so] wrong execstack detection after clear after set"
-	${PATCHELF} --print-execstack libsimple.so
+	"${PATCHELF}" --print-execstack libsimple.so
 	exit 1
 fi
 
@@ -176,25 +176,25 @@ fi
 
 cp libsimple-execstack.so backup
 
-if ! ${PATCHELF} --print-execstack libsimple-execstack.so | grep -q 'execstack: X'; then
+if ! "${PATCHELF}" --print-execstack libsimple-execstack.so | grep -q 'execstack: X'; then
 	echo "[libsimple-execstack.so] wrong initial execstack detection"
-	${PATCHELF} --print-execstack libsimple-execstack.so
+	"${PATCHELF}" --print-execstack libsimple-execstack.so
 	exit 1
 fi
 
-if ! ${PATCHELF} --set-execstack libsimple-execstack.so; then
+if ! "${PATCHELF}" --set-execstack libsimple-execstack.so; then
 	echo "[libsimple-execstack.so] failed noop initial set"
 	exit 1
 fi
 
-if ! ${PATCHELF} --clear-execstack libsimple-execstack.so; then
+if ! "${PATCHELF}" --clear-execstack libsimple-execstack.so; then
 	echo "[libsimple-execstack.so] failed clear"
 	exit 1
 fi
 
-if ! ${PATCHELF} --print-execstack libsimple-execstack.so | grep -q 'execstack: -'; then
+if ! "${PATCHELF}" --print-execstack libsimple-execstack.so | grep -q 'execstack: -'; then
 	echo "[libsimple-execstack.so] wrong execstack detection after clear"
-	${PATCHELF} --print-execstack libsimple-execstack.so
+	"${PATCHELF}" --print-execstack libsimple-execstack.so
 	exit 1
 fi
 
@@ -203,19 +203,19 @@ if diff libsimple-execstack.so backup; then
 	exit 1
 fi
 
-if ! ${PATCHELF} --clear-execstack libsimple-execstack.so; then
+if ! "${PATCHELF}" --clear-execstack libsimple-execstack.so; then
 	echo "[libsimple-execstack.so] failed noop clear"
 	exit 1
 fi
 
-if ! ${PATCHELF} --set-execstack libsimple-execstack.so; then
+if ! "${PATCHELF}" --set-execstack libsimple-execstack.so; then
 	echo "[libsimple-execstack.so] failed set after clear"
 	exit 1
 fi
 
-if ! ${PATCHELF} --print-execstack libsimple-execstack.so | grep -q 'execstack: X'; then
+if ! "${PATCHELF}" --print-execstack libsimple-execstack.so | grep -q 'execstack: X'; then
 	echo "[libsimple-execstack.so] wrong execstack detection after set after clear"
-	${PATCHELF} --print-execstack libsimple-execstack.so
+	"${PATCHELF}" --print-execstack libsimple-execstack.so
 	exit 1
 fi
 

@@ -1,6 +1,6 @@
 #! /bin/sh -e
 
-PATCHELF="../src/patchelf"
+PATCHELF="${PATCHELF:?}"
 SONAME="pht-collision.so"
 SCRATCH="scratch/$(basename "$0" .sh)"
 SCRATCH_SO="${SCRATCH}/${SONAME}"

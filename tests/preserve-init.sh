@@ -28,7 +28,7 @@ if [ "$((before))" -eq "$((0x$sect))" ]; then
     exit 77
 fi
 
-../src/patchelf --set-rpath "$(pwd)/${SCRATCH}" "${SCRATCH}/libcustom-init.so"
+"${PATCHELF}" --set-rpath "$(pwd)/${SCRATCH}" "${SCRATCH}/libcustom-init.so"
 
 after=$(initAddr "${SCRATCH}/libcustom-init.so")
 

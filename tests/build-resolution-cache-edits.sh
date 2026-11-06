@@ -3,7 +3,7 @@
 # note; a no-op edit must leave a valid note in place.
 SCRATCH=scratch/$(basename "$0" .sh)
 READELF=${READELF:-readelf}
-PATCHELF=$(readlink -f "../src/patchelf")
+PATCHELF=$(readlink -f "${PATCHELF:?}")
 
 rm -rf "${SCRATCH}"
 mkdir -p "${SCRATCH}/libsA" "${SCRATCH}/libsC"
@@ -18,8 +18,8 @@ note_present() {
 
 make_cached() {
     cp main "$1"
-    ${PATCHELF} --set-rpath "$2" "$1"
-    ${PATCHELF} --build-resolution-cache "$1"
+    "${PATCHELF}" --set-rpath "$2" "$1"
+    "${PATCHELF}" --build-resolution-cache "$1"
     if ! note_present "$1"; then
         echo "FAIL: test setup did not create a resolution cache note in $1"
         exit 1
@@ -45,49 +45,49 @@ check_kept() {
 # --- run-path edits ---
 bin="${SCRATCH}/main-set"
 make_cached "$bin" "${here}/${SCRATCH}/libsA"
-${PATCHELF} --set-rpath "${here}/${SCRATCH}/libsC" "$bin"
+"${PATCHELF}" --set-rpath "${here}/${SCRATCH}/libsC" "$bin"
 check_dropped "--set-rpath" "$bin"
 
 bin="${SCRATCH}/main-addr"
 make_cached "$bin" "${here}/${SCRATCH}/libsA"
-${PATCHELF} --add-rpath "${here}/${SCRATCH}/libsC" "$bin"
+"${PATCHELF}" --add-rpath "${here}/${SCRATCH}/libsC" "$bin"
 check_dropped "--add-rpath" "$bin"
 
 bin="${SCRATCH}/main-remover"
 make_cached "$bin" "${here}/${SCRATCH}/libsA"
-${PATCHELF} --remove-rpath "$bin"
+"${PATCHELF}" --remove-rpath "$bin"
 check_dropped "--remove-rpath" "$bin"
 
 bin="${SCRATCH}/main-shrink"
 make_cached "$bin" "${here}/${SCRATCH}/libsA:${here}/${SCRATCH}/libsC"
-${PATCHELF} --shrink-rpath --allowed-rpath-prefixes "${here}/${SCRATCH}/libsC" "$bin"
+"${PATCHELF}" --shrink-rpath --allowed-rpath-prefixes "${here}/${SCRATCH}/libsC" "$bin"
 check_dropped "--shrink-rpath" "$bin"
 
 # --- DT_NEEDED edits ---
 bin="${SCRATCH}/main-addn"
 make_cached "$bin" "${here}/${SCRATCH}/libsC"
-${PATCHELF} --add-needed libbar.so "$bin"
+"${PATCHELF}" --add-needed libbar.so "$bin"
 check_dropped "--add-needed" "$bin"
 
 bin="${SCRATCH}/main-removen"
 make_cached "$bin" "${here}/${SCRATCH}/libsC"
-${PATCHELF} --remove-needed libfoo.so "$bin"
+"${PATCHELF}" --remove-needed libfoo.so "$bin"
 check_dropped "--remove-needed" "$bin"
 
 bin="${SCRATCH}/main-replacen"
 make_cached "$bin" "${here}/${SCRATCH}/libsC"
-${PATCHELF} --replace-needed libfoo.so libqux.so "$bin"
+"${PATCHELF}" --replace-needed libfoo.so libqux.so "$bin"
 check_dropped "--replace-needed" "$bin"
 
 # --- no-op edits keep the note ---
 bin="${SCRATCH}/main-noop-removen"
 make_cached "$bin" "${here}/${SCRATCH}/libsC"
-${PATCHELF} --remove-needed libabsent.so "$bin"
+"${PATCHELF}" --remove-needed libabsent.so "$bin"
 check_kept "--remove-needed (absent lib)" "$bin"
 
 bin="${SCRATCH}/main-noop-replacen"
 make_cached "$bin" "${here}/${SCRATCH}/libsC"
-${PATCHELF} --replace-needed libabsent.so libwhatever.so "$bin"
+"${PATCHELF}" --replace-needed libabsent.so libwhatever.so "$bin"
 check_kept "--replace-needed (absent lib)" "$bin"
 
 if [ "$failures" != 0 ]; then

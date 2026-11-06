@@ -1,8 +1,0 @@
-/corpus/
-/crashes/
-/repros/
-/out/
-/triage.txt
-crash-*
-oom-*
-timeout-*

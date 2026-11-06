@@ -10,9 +10,9 @@ cp main "${SCRATCH}"/
 cp libfoo.so "${SCRATCH}/libsA/"
 cp libbar.so "${SCRATCH}/libsB/"
 
-oldRPath=$(../src/patchelf --print-rpath "${SCRATCH}/main")
+oldRPath=$("${PATCHELF}" --print-rpath "${SCRATCH}/main")
 if test -z "$oldRPath"; then oldRPath="/oops"; fi
-../src/patchelf --force-rpath --set-rpath "$oldRPath:$(pwd)/${SCRATCH}/libsA:$(pwd)/${SCRATCH}/libsB" "${SCRATCH}/main"
+"${PATCHELF}" --force-rpath --set-rpath "$oldRPath:$(pwd)/${SCRATCH}/libsA:$(pwd)/${SCRATCH}/libsB" "${SCRATCH}/main"
 
 if test "$(uname)" = FreeBSD; then
     LD_LIBRARY_PATH="$(pwd)/${SCRATCH}/libsB"

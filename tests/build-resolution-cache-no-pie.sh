@@ -3,7 +3,7 @@
 # in-place SHT rewrite would land the note's own header on top of its Elf_Nhdr.
 SCRATCH=scratch/$(basename "$0" .sh)
 READELF=${READELF:-readelf}
-PATCHELF=$(readlink -f "../src/patchelf")
+PATCHELF=$(readlink -f "${PATCHELF:?}")
 
 rm -rf "${SCRATCH}"
 mkdir -p "${SCRATCH}"/libs
@@ -17,10 +17,10 @@ if ! ${READELF} -h "${SCRATCH}/main" | grep -q "Type:.*EXEC"; then
     exit 77
 fi
 
-${PATCHELF} --set-rpath "$(pwd)/${SCRATCH}/libs" "${SCRATCH}/main"
+"${PATCHELF}" --set-rpath "$(pwd)/${SCRATCH}/libs" "${SCRATCH}/main"
 ./pad-to-page "${SCRATCH}/main"
 
-${PATCHELF} --build-resolution-cache "${SCRATCH}/main"
+"${PATCHELF}" --build-resolution-cache "${SCRATCH}/main"
 
 # readelf warns "invalid namesz" when the Elf_Nhdr has been clobbered.
 notes=$(${READELF} -n "${SCRATCH}/main" 2>&1)

@@ -10,7 +10,7 @@ pageSize=$(getconf PAGESIZE)
 
 rm -rf "${SCRATCH}"
 mkdir -p "${SCRATCH}"
-interpreter=$(../src/patchelf --print-interpreter many-syms-no-pie)
+interpreter=$("${PATCHELF}" --print-interpreter many-syms-no-pie)
 newInterpreter="$(pwd)/${SCRATCH}/$(printf '%0200d' 0)"
 ln -s "${interpreter}" "${newInterpreter}"
 
@@ -53,10 +53,10 @@ EOF
 for rpath in present absent; do
     cp many-syms-no-pie "${SCRATCH}/main"
     if test "${rpath}" = absent; then
-        ../src/patchelf --remove-rpath "${SCRATCH}/main"
+        "${PATCHELF}" --remove-rpath "${SCRATCH}/main"
     fi
-    ../src/patchelf --set-interpreter "${newInterpreter}" "${SCRATCH}/main"
-    ../src/patchelf --set-rpath "$(pwd)" "${SCRATCH}/main"
+    "${PATCHELF}" --set-interpreter "${newInterpreter}" "${SCRATCH}/main"
+    "${PATCHELF}" --set-rpath "$(pwd)" "${SCRATCH}/main"
     check_load_pages "${SCRATCH}/main"
     check_dynamic_writable "${SCRATCH}/main"
     "${SCRATCH}/main"
@@ -64,7 +64,7 @@ for rpath in present absent; do
     # Later growth must reuse the header LOAD without creating overlapping
     # mappings or exhausting the address space through needless LOAD splits.
     for size in 6000 16000; do
-        ../src/patchelf --set-rpath "$(pwd):$(printf "%0${size}d" 0)" "${SCRATCH}/main"
+        "${PATCHELF}" --set-rpath "$(pwd):$(printf "%0${size}d" 0)" "${SCRATCH}/main"
         check_load_pages "${SCRATCH}/main"
         check_dynamic_writable "${SCRATCH}/main"
         "${SCRATCH}/main"

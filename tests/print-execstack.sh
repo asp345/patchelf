@@ -1,6 +1,6 @@
 #! /bin/sh -e
 SCRATCH=scratch/$(basename "$0" .sh)
-PATCHELF=$(readlink -f "../src/patchelf")
+PATCHELF=$(readlink -f "${PATCHELF:?}")
 
 rm -rf "${SCRATCH}"
 mkdir -p "${SCRATCH}"
@@ -10,14 +10,14 @@ cp simple-execstack "${SCRATCH}"/
 
 cd "${SCRATCH}"
 
-if ! ${PATCHELF} --print-execstack simple | grep -q 'execstack: -'; then
+if ! "${PATCHELF}" --print-execstack simple | grep -q 'execstack: -'; then
 	echo "wrong execstack detection"
-	${PATCHELF} --print-execstack simple
+	"${PATCHELF}" --print-execstack simple
 	exit 1
 fi
 
-if ! ${PATCHELF} --print-execstack simple-execstack | grep -q 'execstack: X'; then
+if ! "${PATCHELF}" --print-execstack simple-execstack | grep -q 'execstack: X'; then
 	echo "wrong execstack detection"
-	${PATCHELF} --print-execstack simple-execstack
+	"${PATCHELF}" --print-execstack simple-execstack
 	exit 1
 fi

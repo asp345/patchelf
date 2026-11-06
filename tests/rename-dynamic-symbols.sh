@@ -1,6 +1,6 @@
 #!/bin/sh -e
 SCRATCH=scratch/$(basename "$0" .sh)
-PATCHELF=$(readlink -f "../src/patchelf")
+PATCHELF=$(readlink -f "${PATCHELF:?}")
 
 rm -rf "${SCRATCH}"
 mkdir -p "${SCRATCH}"
@@ -26,8 +26,8 @@ list_symbols() {
 list_symbols "$full_lib_name" | cut -d@ -f1 | sort -u | awk "{printf \"%s %s${suffix}\n\",\$1,\$1}" > map
 list_symbols "$full_lib_name" | cut -d@ -f1 | sort -u | awk "{printf \"%s${suffix} %s\n\",\$1,\$1}" > rmap
 
-${PATCHELF} --rename-dynamic-symbols map --output libmapped.so "$full_lib_name"
-${PATCHELF} --rename-dynamic-symbols rmap --output libreversed.so libmapped.so
+"${PATCHELF}" --rename-dynamic-symbols map --output libmapped.so "$full_lib_name"
+"${PATCHELF}" --rename-dynamic-symbols rmap --output libreversed.so libmapped.so
 
 list_symbols "$full_lib_name" | sort > orig_syms
 list_symbols libmapped.so | sort > map_syms
@@ -78,13 +78,13 @@ cp "$full_lib_name" "$full_main_name" .
 
 echo "# Apply renaming"
 chmod +w ./*
-${PATCHELF} --rename-dynamic-symbols ../map ./*
+"${PATCHELF}" --rename-dynamic-symbols ../map ./*
 
 echo "# Run the patched tool and libraries"
 env LD_BIND_NOW=1 LD_LIBRARY_PATH="${PWD}" ./many-syms-main
 
 # Test that other switches still work when --rename-dynamic-symbols has no effect
 echo "SYMBOL_THAT_DOESNT_EXIST ANOTHER_NAME" > map
-${PATCHELF} --set-rpath changed_rpath --rename-dynamic-symbols map --output libnewrpath.so "$full_lib_name"
-[ "$(${PATCHELF} --print-rpath libnewrpath.so)" = changed_rpath ] || exit 1
+"${PATCHELF}" --set-rpath changed_rpath --rename-dynamic-symbols map --output libnewrpath.so "$full_lib_name"
+[ "$("${PATCHELF}" --print-rpath libnewrpath.so)" = changed_rpath ] || exit 1
 

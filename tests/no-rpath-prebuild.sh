@@ -26,13 +26,13 @@ mkdir -p "${SCRATCH}"
 
 cp "$no_rpath_bin" "${SCRATCH}"/no-rpath
 
-oldRPath=$(../src/patchelf --page-size "${PAGESIZE}" --print-rpath "${SCRATCH}/no-rpath")
+oldRPath=$("${PATCHELF}" --page-size "${PAGESIZE}" --print-rpath "${SCRATCH}/no-rpath")
 if test -n "$oldRPath"; then exit 1; fi
-../src/patchelf --page-size "${PAGESIZE}" \
-  --set-interpreter "$(../src/patchelf --page-size "${PAGESIZE}" --print-interpreter ../src/patchelf)" \
+"${PATCHELF}" --page-size "${PAGESIZE}" \
+  --set-interpreter "$("${PATCHELF}" --page-size "${PAGESIZE}" --print-interpreter "${PATCHELF}")" \
   --set-rpath /foo:/bar:/xxxxxxxxxxxxxxx "${SCRATCH}"/no-rpath
 
-newRPath=$(../src/patchelf --page-size "${PAGESIZE}" --print-rpath "${SCRATCH}/no-rpath")
+newRPath=$("${PATCHELF}" --page-size "${PAGESIZE}" --print-rpath "${SCRATCH}/no-rpath")
 if ! echo "$newRPath" | grep -q '/foo:/bar'; then
     echo "incomplete RPATH"
     exit 1

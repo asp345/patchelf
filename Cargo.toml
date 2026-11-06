@@ -1,0 +1,16 @@
+[package]
+name = "patchelf"
+version = "0.20.0"
+edition = "2021"
+rust-version = "1.82"
+description = "Modify the dynamic linker, RPATH and dependencies of ELF executables and libraries"
+license = "GPL-3.0-or-later"
+repository = "https://github.com/NixOS/patchelf"
+readme = "README.md"
+
+# No dependencies on purpose: patchelf sits low in the Nix dependency graph.
+[dependencies]
+
+[profile.release]
+lto = true
+codegen-units = 1

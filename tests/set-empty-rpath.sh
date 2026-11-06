@@ -6,6 +6,6 @@ mkdir -p "${SCRATCH}"
 
 cp simple "${SCRATCH}"/simple
 
-../src/patchelf --force-rpath --set-rpath "" "${SCRATCH}/simple"
+"${PATCHELF}" --force-rpath --set-rpath "" "${SCRATCH}/simple"
 
 "${SCRATCH}"/simple

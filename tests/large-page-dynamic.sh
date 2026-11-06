@@ -24,5 +24,5 @@ cp libfoo.so libbar.so "${SCRATCH}/"
 # --add-needed grows .dynamic, forcing patchelf to relocate it. The binary must
 # still run: the loader writes DT_DEBUG into .dynamic, which segfaults if it
 # landed in a read-only segment.
-../src/patchelf --add-needed libfoo.so "${SCRATCH}/app"
+"${PATCHELF}" --add-needed libfoo.so "${SCRATCH}/app"
 LD_LIBRARY_PATH="${SCRATCH}" "${SCRATCH}/app"

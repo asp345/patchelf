@@ -15,13 +15,13 @@ mkdir -p ${SCRATCH}
 
 cp "$no_rpath_bin" ${SCRATCH}/no-rpath
 
-oldRPath=$(../src/patchelf --print-rpath ${SCRATCH}/no-rpath)
+oldRPath=$("${PATCHELF}" --print-rpath ${SCRATCH}/no-rpath)
 if test -n "$oldRPath"; then exit 1; fi
-../src/patchelf \
-  --set-interpreter "$(../src/patchelf --print-interpreter ../src/patchelf)" \
+"${PATCHELF}" \
+  --set-interpreter "$("${PATCHELF}" --print-interpreter "${PATCHELF}")" \
   --set-rpath /foo:/bar:/xxxxxxxxxxxxxxx ${SCRATCH}/no-rpath
 
-newRPath=$(../src/patchelf --print-rpath ${SCRATCH}/no-rpath)
+newRPath=$("${PATCHELF}" --print-rpath ${SCRATCH}/no-rpath)
 if ! echo "$newRPath" | grep -q '/foo:/bar'; then
     echo "incomplete RPATH"
     exit 1
@@ -36,10 +36,18 @@ if [ "$(echo "$readelfData" | grep -c "PHDR")" != 1 ]; then
   exit 1
 fi
 
-virtAddr=$(echo "$readelfData" | grep "PHDR" | awk '{print $3}')
-if [ "$virtAddr" != "0x00000034" ]; then
-  # Triggered if the virtual address is the incorrect endianness
-  echo "Unexpected virt addr, expected [0x00000034] got [$virtAddr]"
+# PT_PHDR must give the address at which a LOAD segment maps the program
+# header table. A byte-swapped address would match no segment.
+phdr=$(echo "$readelfData" | awk '$1 == "PHDR" { print $2, $3 }')
+phdrOff=$((${phdr% *}))
+phdrAddr=$((${phdr#* }))
+mapped=$(echo "$readelfData" | awk '$1 == "LOAD" { print $2, $3, $5 }' | while read -r off addr size; do
+  if [ "$phdrOff" -ge $((off)) ] && [ "$phdrOff" -lt $((off + size)) ]; then
+    echo $((addr + phdrOff - off))
+  fi
+done)
+if [ "$mapped" != "$phdrAddr" ]; then
+  echo "PT_PHDR address [$phdrAddr] does not match its LOAD mapping [$mapped]"
   exit 1
 fi
 

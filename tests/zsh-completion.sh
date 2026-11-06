@@ -1,6 +1,6 @@
 #! /bin/sh -e
 SCRATCH=scratch/$(basename "$0" .sh)
-PATCHELF=$(readlink -f "../src/patchelf")
+PATCHELF=$(readlink -f "${PATCHELF:?}")
 COMPLETIONS=$(readlink -f "${srcdir:?}/../completions/zsh")
 export PATCHELF COMPLETIONS
 
@@ -13,7 +13,7 @@ rm -rf "${SCRATCH}"
 mkdir -p "${SCRATCH}/libdir"
 cp main "${SCRATCH}"/
 cp libfoo.so "${SCRATCH}"/libdir/
-${PATCHELF} --add-needed 'libz:x.so' "${SCRATCH}"/main
+"${PATCHELF}" --add-needed 'libz:x.so' "${SCRATCH}"/main
 cp "${SCRATCH}"/main "${SCRATCH}"/-main
 cd "${SCRATCH}"
 

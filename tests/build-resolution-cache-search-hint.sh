@@ -5,7 +5,7 @@
 # search hints, never as absolute "=<path>" entries.
 SCRATCH=scratch/$(basename "$0" .sh)
 READELF=${READELF:-readelf}
-PATCHELF=$(readlink -f "../src/patchelf")
+PATCHELF=$(readlink -f "${PATCHELF:?}")
 
 rm -rf "${SCRATCH}"
 mkdir -p "${SCRATCH}/libs"
@@ -23,8 +23,8 @@ descriptor() {
 # descriptor dump in $d for the expect_* helpers.
 make_cached() {
     cp main "$1"
-    ${PATCHELF} --set-rpath "$2" "$1"
-    ${PATCHELF} --build-resolution-cache "$1"
+    "${PATCHELF}" --set-rpath "$2" "$1"
+    "${PATCHELF}" --build-resolution-cache "$1"
     d=$(descriptor "$1")
     echo "$d"
 }

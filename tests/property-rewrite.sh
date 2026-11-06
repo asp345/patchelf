@@ -6,12 +6,10 @@
 # The binary is run after each one.
 # A case that fails to build or run before patching is skipped, not failed.
 #
-# Point PATCHELF at a sanitizer build for deeper checks, e.g.
-#   g++ -std=c++17 -g -fsanitize=address,undefined -Isrc -o /tmp/pe \
-#       src/patchelf.cc
-#   PATCHELF=/tmp/pe ITERS=500 tests/property-rewrite.sh
+# Run more iterations for deeper checks, e.g.
+#   PATCHELF=$PWD/target/debug/patchelf ITERS=500 tests/property-rewrite.sh
 
-PATCHELF=${PATCHELF:-../src/patchelf}
+PATCHELF=${PATCHELF:?}
 CC=${CC:-cc}
 CXX=${CXX:-c++}
 ITERS=${ITERS:-25}

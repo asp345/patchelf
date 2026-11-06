@@ -1,5 +1,9 @@
 #! /bin/sh -e
 
+# Growing a non-PIE executable must not move any existing segment or the
+# program header table (tools like strip expect it right after the ELF
+# header); new data goes into an added segment.
+
 if test "$(uname -m)" != x86_64 || test "$(uname)" != Linux; then
     exit 77
 fi
@@ -11,16 +15,21 @@ rm -rf "${SCRATCH}"
 mkdir -p "${SCRATCH}"
 cp main-no-pie "${SCRATCH}/main"
 
-first_load_addr() {
-    "${READELF}" -lW "$1" | awk '$1 == "LOAD" { print $3; exit }'
+loads() {
+    "${READELF}" -lW "$1" | awk '$1 == "LOAD" { print $2, $3, $5, $6, $7 }'
+}
+phoff() {
+    "${READELF}" -hW "$1" | awk '/Start of program headers:/ { print $5 }'
 }
 
-original_load=$(first_load_addr "${SCRATCH}/main")
-../src/patchelf --set-rpath "$(printf '%0800d' 0)" "${SCRATCH}/main"
-modified_load=$(first_load_addr "${SCRATCH}/main")
+loads "${SCRATCH}/main" > "${SCRATCH}/loads-before"
+"${PATCHELF}" --set-rpath "$(printf '%0800d' 0)" "${SCRATCH}/main"
+loads "${SCRATCH}/main" > "${SCRATCH}/loads-after"
 
-# 800 bytes fit into a single extra page.
-test "$((original_load - modified_load))" -eq 4096
+# Every original segment is still there, unchanged, plus exactly one new one.
+grep -vxFf "${SCRATCH}/loads-after" "${SCRATCH}/loads-before" && exit 1
+test "$(wc -l < "${SCRATCH}/loads-after")" -eq "$(($(wc -l < "${SCRATCH}/loads-before") + 1))"
+test "$(phoff "${SCRATCH}/main")" -eq 64
 
 exitCode=0
 LD_LIBRARY_PATH=. "${SCRATCH}/main" || exitCode=$?

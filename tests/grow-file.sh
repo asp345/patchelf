@@ -11,7 +11,7 @@ cp simple-pie "${SCRATCH}/simple-pie"
 printf '=%.0s' $(seq 1 4096) > "${SCRATCH}/foo.bin"
 
 # Grow the file
-../src/patchelf --add-rpath @"${SCRATCH}/foo.bin" "${SCRATCH}/simple-pie"
+"${PATCHELF}" --add-rpath @"${SCRATCH}/foo.bin" "${SCRATCH}/simple-pie"
 
 # Make sure we can still run it
 "${SCRATCH}/simple-pie"

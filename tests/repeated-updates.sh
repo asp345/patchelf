@@ -1,7 +1,7 @@
 #! /bin/sh -e
 
 SCRATCH=scratch/$(basename "$0" .sh)
-PATCHELF=$(readlink -f "../src/patchelf")
+PATCHELF=$(readlink -f "${PATCHELF:?}")
 READELF=${READELF:-readelf}
 
 rm -rf "${SCRATCH}"
@@ -13,7 +13,7 @@ cp libbar.so "${SCRATCH}/"
 
 cd "${SCRATCH}"
 
-${PATCHELF} --add-needed ./libbar.so simple
+"${PATCHELF}" --add-needed ./libbar.so simple
 
 ###############################################################################
 # Test that repeatedly modifying a string inside a shared library does not
@@ -23,8 +23,8 @@ load_segments_before=$(${READELF} -W -l libbar.so | grep -c LOAD)
 
 for _ in $(seq 1 100)
 do
-    ${PATCHELF} --set-soname ./libbar.so libbar.so
-    ${PATCHELF} --set-soname libbar.so libbar.so
+    "${PATCHELF}" --set-soname ./libbar.so libbar.so
+    "${PATCHELF}" --set-soname libbar.so libbar.so
     ./simple || exit 1
 done
 

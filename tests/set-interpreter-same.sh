@@ -3,7 +3,7 @@ SCRATCH=scratch/$(basename "$0" .sh)
 
 ./simple
 
-curInterpreter=$(../src/patchelf --print-interpreter ./simple)
+curInterpreter=$("${PATCHELF}" --print-interpreter ./simple)
 echo "current interpreter is $curInterpreter"
 
 rm -rf "${SCRATCH}"
@@ -13,7 +13,7 @@ cp simple "${SCRATCH}"/
 
 echo "set the same interpreter as the current one"
 before_checksum=$(sha256sum "${SCRATCH}/simple")
-../src/patchelf --set-interpreter "${curInterpreter}" "${SCRATCH}/simple"
+"${PATCHELF}" --set-interpreter "${curInterpreter}" "${SCRATCH}/simple"
 after_checksum=$(sha256sum "${SCRATCH}/simple")
 
 if [ "$before_checksum" != "$after_checksum" ]; then
@@ -27,7 +27,7 @@ dummyInterpreter="aaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
 
 echo "set the dummy interpreter"
 before_checksum=$(sha256sum "${SCRATCH}/simple")
-../src/patchelf --set-interpreter "${dummyInterpreter}" "${SCRATCH}/simple"
+"${PATCHELF}" --set-interpreter "${dummyInterpreter}" "${SCRATCH}/simple"
 after_checksum=$(sha256sum "${SCRATCH}/simple")
 
 if [ "$before_checksum" = "$after_checksum" ]; then
@@ -42,7 +42,7 @@ fi
 
 echo "set the same interpreter as the current one"
 before_checksum=$(sha256sum "${SCRATCH}/simple")
-../src/patchelf --set-interpreter "${dummyInterpreter}" "${SCRATCH}/simple"
+"${PATCHELF}" --set-interpreter "${dummyInterpreter}" "${SCRATCH}/simple"
 after_checksum=$(sha256sum "${SCRATCH}/simple")
 
 if [ "$before_checksum" != "$after_checksum" ]; then

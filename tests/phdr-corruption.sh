@@ -1,22 +1,21 @@
 #! /bin/sh -e
 
-PATCHELF="../src/patchelf"
+# phdr-corruption.so has a .dynamic section but no PT_DYNAMIC, so the dynamic
+# loader would never read a run path from it. patchelf must refuse cleanly
+# and leave the file untouched rather than write a corrupt one.
+
+PATCHELF="${PATCHELF:?}"
 SONAME="phdr-corruption.so"
 SCRATCH="scratch/$(basename "$0" .sh)"
 SCRATCH_SO="${SCRATCH}/${SONAME}"
-READELF=${READELF:-readelf}
 
 rm -rf "${SCRATCH}"
 mkdir -p "${SCRATCH}"
 cp "${SONAME}" "${SCRATCH}"
 
-"${PATCHELF}" --set-rpath "$(pwd)" "${SCRATCH_SO}"
-
-# Check for PT_PHDR entry VirtAddr corruption
-readelfData=$(${READELF} -l "${SCRATCH_SO}" 2>&1)
-
-if [ "$(echo "$readelfData" | grep -c "PHDR")" != 1 ]; then
-  # Triggered if PHDR errors appear on stderr
-  echo "ERROR: Unexpected number of occurences of PHDR in readelf results!"
-  exit 1
+if "${PATCHELF}" --set-rpath "$(pwd)" "${SCRATCH_SO}" 2> "${SCRATCH}/err"; then
+    echo "ERROR: expected patchelf to refuse a file without PT_DYNAMIC"
+    exit 1
 fi
+grep -q "cannot find the dynamic section" "${SCRATCH}/err"
+cmp "${SONAME}" "${SCRATCH_SO}"

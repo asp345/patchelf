@@ -17,7 +17,7 @@
 # GNU ld and gold put it before. If no available linker produces a build
 # where the section actually moves, there is nothing to assert: skip.
 
-PATCHELF=${PATCHELF:-../src/patchelf}
+PATCHELF=${PATCHELF:?}
 READELF=${READELF:-readelf}
 CC=${CC:-cc}
 
@@ -72,7 +72,7 @@ for ld in default lld mold bfd gold; do
     [ -n "$before" ] || continue
     [ "$(./"$exe")" = 42 ] || continue
 
-    ${PATCHELF} --set-rpath "/lib/$LONG" "$exe"
+    "${PATCHELF}" --set-rpath "/lib/$LONG" "$exe"
 
     after=$(verdef_addr "$exe")
     if [ "$((before))" = "$((after))" ]; then

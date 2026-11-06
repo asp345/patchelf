@@ -16,7 +16,7 @@ if echo "$debugTag" | grep -q DEBUG; then
 fi
 
 # set DT_DEBUG
-../src/patchelf --add-debug-tag "${SCRATCH}/libsimple.so"
+"${PATCHELF}" --add-debug-tag "${SCRATCH}/libsimple.so"
 
 # check there is DT_DEBUG tag
 debugTag=$($READELF -d "${SCRATCH}/libsimple.so")

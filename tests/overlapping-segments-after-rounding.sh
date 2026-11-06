@@ -1,6 +1,6 @@
 #! /bin/sh -e
 
-PATCHELF=$(readlink -f "../src/patchelf")
+PATCHELF=$(readlink -f "${PATCHELF:?}")
 SCRATCH="scratch/$(basename "$0" .sh)"
 READELF=${READELF:-readelf}
 
@@ -25,11 +25,11 @@ if test "$(uname -m)" = x86_64 && test "$(uname)" = Linux; then
     cp "${srcdir:?}/${EXEC_NAME}" "${SCRATCH}/"
     cd "${SCRATCH}"
 
-    ${PATCHELF} --force-rpath --remove-rpath --output modified1 "${EXEC_NAME}"
+    "${PATCHELF}" --force-rpath --remove-rpath --output modified1 "${EXEC_NAME}"
 
     check_load_pages modified1
 
-    ${PATCHELF} --force-rpath --set-rpath "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx" --output modified2 modified1
+    "${PATCHELF}" --force-rpath --set-rpath "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx" --output modified2 modified1
 
     check_load_pages modified2
 fi

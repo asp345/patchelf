@@ -5,7 +5,7 @@
 SCRATCH=scratch/$(basename "$0" .sh)
 READELF=${READELF:-readelf}
 OBJCOPY=${OBJCOPY:-objcopy}
-PATCHELF=$(readlink -f "../src/patchelf")
+PATCHELF=$(readlink -f "${PATCHELF:?}")
 
 rm -rf "${SCRATCH}"
 mkdir -p "${SCRATCH}/libsA" "${SCRATCH}/empty"
@@ -18,8 +18,8 @@ note_present() {
 
 make_cached() {
     cp main "$1"
-    ${PATCHELF} --set-rpath "$(pwd)/${SCRATCH}/libsA" "$1"
-    ${PATCHELF} --build-resolution-cache "$1"
+    "${PATCHELF}" --set-rpath "$(pwd)/${SCRATCH}/libsA" "$1"
+    "${PATCHELF}" --build-resolution-cache "$1"
     if ! note_present "$1"; then
         echo "FAIL: test setup did not create a resolution cache note in $1"
         exit 1
@@ -41,7 +41,7 @@ expect_stale_failure() {
     label=$1
     bin=$2
     set +e
-    err=$(${PATCHELF} --build-resolution-cache "$bin" 2>&1 >/dev/null)
+    err=$("${PATCHELF}" --build-resolution-cache "$bin" 2>&1 >/dev/null)
     ec=$?
     set -e
     echo "$err"
@@ -68,13 +68,13 @@ expect_stale_failure() {
 # Stale note + nothing to resolve (early bail-outs).
 bin="${SCRATCH}/main-no-rpath"
 make_cached "$bin"
-${PATCHELF} --remove-rpath "$bin"
+"${PATCHELF}" --remove-rpath "$bin"
 ensure_stale_note "$bin"
 expect_stale_failure "no-runpath rebuild" "$bin"
 
 bin="${SCRATCH}/main-unresolved"
 make_cached "$bin"
-${PATCHELF} --set-rpath "$(pwd)/${SCRATCH}/empty" "$bin"
+"${PATCHELF}" --set-rpath "$(pwd)/${SCRATCH}/empty" "$bin"
 ensure_stale_note "$bin"
 expect_stale_failure "unresolved-library rebuild" "$bin"
 
@@ -82,7 +82,7 @@ expect_stale_failure "unresolved-library rebuild" "$bin"
 # stay in bounds and fall through to the failure.
 bin="${SCRATCH}/main-malformed"
 cp main "$bin"
-${PATCHELF} --set-rpath "$(pwd)/${SCRATCH}/libsA" "$bin"
+"${PATCHELF}" --set-rpath "$(pwd)/${SCRATCH}/libsA" "$bin"
 printf x > "${SCRATCH}/tiny"
 ${OBJCOPY} --add-section .note.nixos.ldcache="${SCRATCH}/tiny" "$bin"
 expect_stale_failure "malformed-note rebuild" "$bin"

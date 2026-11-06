@@ -11,4 +11,4 @@ ${STRIP} --remove-section=.gnu.hash "${SCRATCH}/simple"
 
 # Check if patchelf handles binaries with GNU_HASH in dynamic section but
 # without .gnu.hash section
-../src/patchelf --set-interpreter /oops "${SCRATCH}/simple"
+"${PATCHELF}" --set-interpreter /oops "${SCRATCH}/simple"

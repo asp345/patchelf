@@ -1,0 +1,29 @@
+#! /bin/sh
+# Usage: run-tests JOBS TEST...
+# Runs the tests in parallel. Exit status 0 is a pass, 77 a skip, anything
+# else a failure. Each test's output goes to TEST.log.
+
+jobs=$1
+shift
+
+# shellcheck disable=SC2016 # expanded by the inner shell
+for t in "$@"; do echo "$t"; done | xargs -P "$jobs" -I{} sh -c '
+    sh "./$1" > "$1.log" 2>&1
+    rc=$?
+    case $rc in
+        0) echo "PASS: $1" ;;
+        77) echo "SKIP: $1" ;;
+        *) echo "FAIL: $1 (exit $rc)" ;;
+    esac
+' sh {} > results.log
+
+sort results.log
+pass=$(grep -c '^PASS' results.log)
+skip=$(grep -c '^SKIP' results.log)
+fail=$(grep -c '^FAIL' results.log)
+echo "# total: $((pass + skip + fail))  pass: $pass  skip: $skip  fail: $fail"
+grep '^FAIL' results.log | sed 's/^FAIL: \([^ ]*\).*/\1/' | while read -r t; do
+    echo "---- $t.log (last 20 lines) ----"
+    tail -20 "$t.log"
+done
+[ "$fail" = 0 ]

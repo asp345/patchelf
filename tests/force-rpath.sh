@@ -10,7 +10,7 @@ cp libfoo.so "$SCRATCHFILE"
 
 doit() {
     set +x
-    ../src/patchelf "$@" "$SCRATCHFILE"
+    "${PATCHELF}" "$@" "$SCRATCHFILE"
     set -x
 }
 
