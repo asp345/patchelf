@@ -52,9 +52,11 @@ the C++ sources and the Autotools, CMake and Meson builds are gone. Build with
 ### Bug fixes
 
 * `--rename-dynamic-symbols` only renumbers relocations that refer to the
-  dynamic symbol table (it used to also change `--emit-relocs` relocations),
-  keeps the System V hash table chains intact, and is refused on MIPS, where
-  symbol order is tied to the GOT.
+  dynamic symbol table (it used to also change `--emit-relocs` relocations)
+  and keeps the System V hash table chains intact. On MIPS, where symbol
+  order is tied to the GOT, it rebuilds `.hash` and `.MIPS.xhash` without
+  reordering symbols (it used to reorder them, breaking the GOT).
+* Unused `PT_NULL` program headers are reused when the table needs room.
 * Malformed files can no longer make patchelf crash or allocate huge amounts
   of memory.
 

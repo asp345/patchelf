@@ -47,10 +47,9 @@ pub fn emit(mut img: Image, cfg: &Config) -> Result<Vec<u8>> {
     let phent = ctx.phdr_size() as u64;
     let phoff = img.ehdr.phoff;
     let orig_phnum = img.orig_phdrs.len() as u64;
-    // Unused slots are given up first if the table may need to grow.
-    if img.phdrs.len() + img.new_notes.len() + 1 > orig_phnum as usize {
-        img.phdrs.retain(|p| p.p_type != PT_NULL);
-    }
+    // Unused (`PT_NULL`) slots are given up only if the table needs room.
+    let unused = img.phdrs.iter().filter(|p| p.p_type == PT_NULL).count() as u64;
+    let mut give_up;
     let mut regions = collect_regions(&img);
 
     // ---- regions whose contents changed ----
@@ -94,7 +93,9 @@ pub fn emit(mut img: Image, cfg: &Config) -> Result<Vec<u8>> {
                 reuse = Some(li);
             }
         }
-        let n = img.phdrs.len() as u64 + img.new_notes.len() as u64 + u64::from(need_segment && reuse.is_none());
+        let wanted = img.phdrs.len() as u64 + img.new_notes.len() as u64 + u64::from(need_segment && reuse.is_none());
+        give_up = wanted.saturating_sub(orig_phnum).min(unused);
+        let n = wanted - give_up;
         if n <= orig_phnum || pht_moves {
             break n;
         }
@@ -280,6 +281,7 @@ pub fn emit(mut img: Image, cfg: &Config) -> Result<Vec<u8>> {
         match reuse {
             Some(li) => img.phdrs[li] = load,
             None => {
+                drop_unused(&mut img.phdrs, &mut give_up);
                 let pos = img
                     .phdrs
                     .iter()
@@ -293,6 +295,7 @@ pub fn emit(mut img: Image, cfg: &Config) -> Result<Vec<u8>> {
     }
     let mut shstrtab_extra: Vec<u8> = Vec::new();
     let shstrtab_size = img.shdrs.get(img.shstrndx).map_or(0, |s| s.size);
+    drop_unused(&mut img.phdrs, &mut give_up);
     for i in 0..img.new_notes.len() {
         let (off, addr, size) = place_of(Item::Note(i)).unwrap();
         img.phdrs.push(Phdr {
@@ -474,6 +477,15 @@ pub fn emit(mut img: Image, cfg: &Config) -> Result<Vec<u8>> {
     img.ehdr.phnum = final_phnum as u16;
     put(&mut out, 0, &img.ehdr.encode(ctx))?;
     Ok(out)
+}
+
+/// Remove up to `count` `PT_NULL` entries, to make room for new ones.
+fn drop_unused(phdrs: &mut Vec<Phdr>, count: &mut u64) {
+    while *count > 0 {
+        let Some(i) = phdrs.iter().rposition(|p| p.p_type == PT_NULL) else { break };
+        phdrs.remove(i);
+        *count -= 1;
+    }
 }
 
 /// Something placed in the new segment.

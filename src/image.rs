@@ -292,6 +292,9 @@ impl Image {
             let off = self.map_addr(h, 2 * ent)?;
             return Ok(hash::sysv_header(self.ctx, &self.data, off, ent)?.1);
         }
+        if let Some(n) = dynamic.get(DT_MIPS_SYMTABNO) {
+            return Ok(n);
+        }
         if let Some(h) = dynamic.get(DT_GNU_HASH) {
             let off = self.map_addr(h, 16)?;
             return hash::gnu_symbol_count(self.ctx, &self.data, off);

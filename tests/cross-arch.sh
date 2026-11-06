@@ -46,7 +46,11 @@ for spec in "aarch64-linux-gnu aarch64" "i686-linux-gnu i386" "arm-linux-gnueabi
     # Plenty of exported symbols, so the hash tables have many buckets.
     i=0
     while [ $i -lt 300 ]; do echo "int extra$i(void) { return $i; }"; i=$((i + 1)); done > "$dir/extra.c"
-    "${triple}-gcc" -fPIC -shared -o "$dir/libbar.so" "${TOP}/bar.c" "$dir/extra.c"
+    # On MIPS, emit both .MIPS.xhash and .hash, so renaming exercises both.
+    hash_style=
+    case "$triple" in mips*) hash_style=-Wl,--hash-style=both ;; esac
+    # shellcheck disable=SC2086 # $hash_style is one optional word
+    "${triple}-gcc" -fPIC -shared $hash_style -o "$dir/libbar.so" "${TOP}/bar.c" "$dir/extra.c"
     # shellcheck disable=SC2016 # $ORIGIN is for the dynamic loader
     "${triple}-gcc" -fPIC -shared -o "$dir/libfoo.so" "${TOP}/foo.c" -L"$dir" -lbar -Wl,-rpath,'$ORIGIN'
     "${triple}-gcc" -fPIE -pie -o "$dir/main-pie" "${TOP}/main.c" -L"$dir" -lfoo -Wl,-rpath-link,"$dir"
@@ -89,16 +93,10 @@ for spec in "aarch64-linux-gnu aarch64" "i686-linux-gnu i386" "arm-linux-gnueabi
     done
 
     # Renaming rebuilds the hash tables; every other symbol must still resolve.
-    # (Not supported on MIPS, where symbol order is tied to the GOT.)
-    case "$triple" in
-        mips*) ;;
-        *)
-            i=0
-            while [ $i -lt 50 ]; do echo "extra$i renamed_extra$i"; i=$((i + 1)); done > "$dir/map"
-            "$PATCHELF" --rename-dynamic-symbols "$dir/map" "$dir/libbar.so"
-            run "renamed symbols" main-pie "$dir"
-            ;;
-    esac
+    i=0
+    while [ $i -lt 50 ]; do echo "extra$i renamed_extra$i"; i=$((i + 1)); done > "$dir/map"
+    "$PATCHELF" --rename-dynamic-symbols "$dir/map" "$dir/libbar.so"
+    run "renamed symbols" main-pie "$dir"
 
     # Repeated growth must not keep adding segments.
     before=$("${READELF}" -lW "$dir/libfoo.so" | grep -c LOAD)

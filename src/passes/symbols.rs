@@ -65,13 +65,20 @@ impl Pass for Rename {
 fn rebuild_hash_tables(img: &mut Image, t: &SymTab) -> Result<()> {
     let dynamic = img.dynamic()?;
     let gnu = dynamic.get(DT_GNU_HASH);
+    let xhash = dynamic.get(DT_MIPS_XHASH);
     let sysv = dynamic.get(DT_HASH);
-    if dynamic.get(DT_MIPS_XHASH).is_some() || img.ehdr.machine == EM_MIPS {
-        bail!("renaming dynamic symbols is not supported on MIPS");
-    }
     if let Some(addr) = gnu {
+        // On MIPS, symbol order is tied to the GOT, so .dynsym can't be
+        // reordered as the GNU hash table would need (MIPS uses .MIPS.xhash).
+        if img.ehdr.machine == EM_MIPS {
+            bail!("cannot rebuild a GNU hash table on MIPS");
+        }
         let off = img.map_addr(addr, 16)?;
         rebuild_gnu_hash(img, t, off)?;
+    }
+    if let Some(addr) = xhash {
+        let off = img.map_addr(addr, 16)?;
+        rebuild_mips_xhash(img, t, off)?;
     }
     if let Some(addr) = sysv {
         let ent = hash::sysv_entry_size(img.ctx, img.ehdr.machine);
@@ -87,6 +94,47 @@ fn rebuild_hash_tables(img: &mut Image, t: &SymTab) -> Result<()> {
     Ok(())
 }
 
+/// Hashes of symbols `first..t.count` and their order sorted by bucket
+/// (stable, so symbols already in the right bucket keep their order).
+fn bucket_order(img: &Image, t: &SymTab, first: u64, nbuckets: u32) -> Result<(Vec<u32>, Vec<usize>)> {
+    let mut hashes = Vec::new();
+    for i in first..t.count {
+        hashes.push(hash::gnu(&img.string(u64::from(img.read_sym(t, i)?.name))?));
+    }
+    let mut order: Vec<usize> = (0..hashes.len()).collect();
+    order.sort_by_key(|&i| hashes[i] % nbuckets);
+    Ok((hashes, order))
+}
+
+/// `.MIPS.xhash` is a GNU hash table followed by a translation table from
+/// chain position to symbol index. MIPS orders `.dynsym` for the GOT, so the
+/// hashed symbols are exactly those the translation table lists (not simply
+/// those from `symoffset` on); they are re-sorted by bucket without moving
+/// any symbol.
+fn rebuild_mips_xhash(img: &mut Image, t: &SymTab, off: u64) -> Result<()> {
+    let ctx = img.ctx;
+    let h = GnuHeader::read(ctx, &img.data, off)?;
+    let first = u64::from(h.symoffset);
+    let n = t.count.saturating_sub(first);
+    let xlat = off + 16 + u64::from(h.bloom_size) * ctx.word() as u64 + 4 * u64::from(h.nbuckets) + 4 * n;
+    let mut syms = Vec::with_capacity(n as usize);
+    let mut hashes = Vec::with_capacity(n as usize);
+    for pos in 0..n {
+        let index = u64::from(ctx.u32(&img.data, xlat + 4 * pos)?);
+        crate::ensure!(index < t.count, ".MIPS.xhash refers to symbol {index} of {}", t.count);
+        hashes.push(hash::gnu(&img.string(u64::from(img.read_sym(t, index)?.name))?));
+        syms.push(index);
+    }
+    let mut order: Vec<usize> = (0..syms.len()).collect();
+    order.sort_by_key(|&i| hashes[i] % h.nbuckets);
+    let sorted: Vec<u32> = order.iter().map(|&i| hashes[i]).collect();
+    hash::gnu_rewrite(ctx, &mut img.data, off, &h, &sorted)?;
+    for (pos, &i) in order.iter().enumerate() {
+        ctx.put_u32(&mut img.data, xlat + 4 * pos as u64, syms[i] as u32)?;
+    }
+    Ok(())
+}
+
 /// The GNU hash table requires hashed symbols to be grouped by bucket, so
 /// renaming can reorder `.dynsym`. Everything that refers to dynamic symbols
 /// by index (the version table and relocations) is renumbered to match.
@@ -98,13 +146,7 @@ fn rebuild_gnu_hash(img: &mut Image, t: &SymTab, off: u64) -> Result<()> {
         return Ok(());
     }
     let syms: Vec<Sym> = (first..t.count).map(|i| img.read_sym(t, i)).collect::<Result<_>>()?;
-    let mut hashes = Vec::with_capacity(syms.len());
-    for s in &syms {
-        hashes.push(hash::gnu(&img.string(u64::from(s.name))?));
-    }
-    // Stable sort, so symbols already in the right bucket keep their order.
-    let mut order: Vec<usize> = (0..syms.len()).collect();
-    order.sort_by_key(|&i| hashes[i] % h.nbuckets);
+    let (hashes, order) = bucket_order(img, t, first, h.nbuckets)?;
     let mut new_index = vec![0u64; syms.len()];
     for (new, &old) in order.iter().enumerate() {
         new_index[old] = first + new as u64;

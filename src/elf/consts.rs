@@ -106,6 +106,7 @@ pub const DT_VERNEED: u64 = 0x6fff_fffe;
 pub const DT_VERNEEDNUM: u64 = 0x6fff_ffff;
 pub const DT_AUXILIARY: u64 = 0x7fff_fffd;
 pub const DT_FILTER: u64 = 0x7fff_ffff;
+pub const DT_MIPS_SYMTABNO: u64 = 0x7000_0011;
 pub const DT_MIPS_RLD_MAP_REL: u64 = 0x7000_0035;
 pub const DT_MIPS_XHASH: u64 = 0x7000_0036;
 

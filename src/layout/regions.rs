@@ -179,6 +179,18 @@ pub(super) fn tag_tables(img: &Image) -> Vec<(u64, u64, u64, u64)> {
             out.push((DT_GNU_HASH, addr, size, word));
         }
     }
+    if let (Some(addr), Ok(Some(t))) = (d.get(DT_MIPS_XHASH), img.dynsym()) {
+        // A GNU-style table followed by one translation entry per chain entry.
+        let size = (|| -> Result<u64> {
+            let off = img.map_addr(addr, 16)?;
+            let h = hash::GnuHeader::read(ctx, data, off)?;
+            let n = t.count.saturating_sub(u64::from(h.symoffset));
+            Ok(16 + u64::from(h.bloom_size) * word + 4 * u64::from(h.nbuckets) + 8 * n)
+        })();
+        if let Ok(size) = size {
+            out.push((DT_MIPS_XHASH, addr, size, word));
+        }
+    }
     if let Some(addr) = d.get(DT_HASH) {
         let ent = hash::sysv_entry_size(ctx, img.ehdr.machine);
         if let Ok((nb, nc)) = img.map_addr(addr, 2 * ent).and_then(|off| hash::sysv_header(ctx, data, off, ent)) {
